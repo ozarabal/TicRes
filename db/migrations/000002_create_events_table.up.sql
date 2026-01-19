@@ -1,0 +1,8 @@
+CREATE TABLE events (
+  event_id SERIAL PRIMARY KEY,
+  name VARCHAR(255),
+  date TIMESTAMP,
+  location VARCHAR(255),
+  capacity INTEGER,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
