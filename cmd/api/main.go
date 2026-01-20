@@ -6,6 +6,7 @@ import (
 
 	"ticres/internal/config"
 	delivery "ticres/internal/delivery/http" // Alias biar gak bentrok sama package net/http
+	"ticres/internal/delivery/http/middleware"
 	"ticres/internal/repository"
 	"ticres/internal/usecase"
 	"ticres/pkg/database"
@@ -39,19 +40,24 @@ func main() {
 	
 	// Usecase butuh Repo & Timeout Context
 	timeoutContext := time.Duration(5) * time.Second
-	userUsecase := usecase.NewUserUsecase(userRepo, timeoutContext)
+	userUsecase := usecase.NewUserUsecase(userRepo, timeoutContext, cfg.JWT.Secret, cfg.JWT.ExpTime)
 	
 	// Handler butuh Usecase
 	userHandler := delivery.NewUserHandler(userUsecase)
 
 	// 4. Setup Router (Gin)
 	r := gin.Default()
+    v1 := r.Group("/api/v1")
+    {
+        v1.POST("/register", userHandler.Register)
+        v1.POST("/login", userHandler.Login)
 
-	// Grouping API v1
-	v1 := r.Group("/api/v1")
-	{
-		v1.POST("/register", userHandler.Register)
-	}
+		protected := v1.Group("/")
+		protected.Use(middleware.AuthMiddleware(cfg.JWT.Secret))
+		{
+			protected.GET("/me", userHandler.Me)
+		}
+    }
 
 	// 5. Run Server
 	log.Printf("Server berjalan di port %s", cfg.Server.Port)

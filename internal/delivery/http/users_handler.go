@@ -48,6 +48,11 @@ func (h *UserHandler) Register(c *gin.Context) {
 	// C. Panggil Logic Bisnis (Usecase)
 	// Kita gunakan Context dari Gin (c.Request.Context()) agar trace-nya nyambung
 	if err := h.userUsecase.Register(c.Request.Context(), user); err != nil {
+
+		if err == entity.ErrUserAlreadyExisist{
+			c.JSON(http.StatusConflict, gin.H{"error": "Email already registered"})
+			return
+		}
 		// Disini kita bisa cek error type, tapi untuk simpelnya kita return 500 dulu
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal registrasi user: " + err.Error()})
 		return
@@ -62,5 +67,51 @@ func (h *UserHandler) Register(c *gin.Context) {
 			"email":      user.Email,
 			"created_at": user.CreatedAt,
 		},
+	})
+}
+
+// 1. Buat DTO untuk Login Request
+type loginRequest struct {
+    Email    string `json:"email" binding:"required,email"`
+    Password string `json:"password" binding:"required"`
+}
+
+// 2. Tambahkan Fungsi Login
+func (h *UserHandler) Login(c *gin.Context) {
+    var req loginRequest
+
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    token, err := h.userUsecase.Login(c.Request.Context(), req.Email, req.Password)
+    if err != nil {
+        // Bedakan error validasi login vs error server
+        if err.Error() == "invalid email or password" {
+            c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
+        } else {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "Login failed"})
+        }
+        return
+    }
+
+    // Sukses return token
+    c.JSON(http.StatusOK, gin.H{
+        "token": token,
+    })
+}
+
+func (h *UserHandler) Me(c *gin.Context) {
+	// Ambil userID yang tadi disimpan oleh Middleware
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Ini adalah halaman rahasia",
+		"user_id": userID, // Bukti bahwa kita tahu siapa user yang login
 	})
 }

@@ -5,11 +5,18 @@ import "github.com/spf13/viper"
 type Config struct {
 	Server ServerConfig
 	DB     DatabaseConfig
+	JWT		JWTConfig
 }
 
 type ServerConfig struct {
 	Port string
 }
+
+type JWTConfig struct{
+	Secret 	string
+	ExpTime int
+}
+
 
 type DatabaseConfig struct {
 	Host     string
@@ -36,6 +43,8 @@ func LoadConfig() (*Config, error) {
 	cfg.DB.User = viper.GetString("DB_USER")
 	cfg.DB.Password = viper.GetString("DB_PASSWORD")
 	cfg.DB.Name = viper.GetString("DB_NAME")
+	cfg.JWT.Secret = viper.GetString("JWT_SECRET")
+	cfg.JWT.ExpTime = viper.GetInt("JWT_EXP_TIME")
 
 	return &cfg, nil
 }

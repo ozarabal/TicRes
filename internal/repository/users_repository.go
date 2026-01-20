@@ -3,6 +3,9 @@ package repository
 import (
 	"context"
 	"ticres/internal/entity" // sesuaikan nama module
+	"errors"
+	
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -39,6 +42,14 @@ func (r *userRepository) CreateUser(ctx context.Context, user *entity.User) erro
 	
 	err := r.db.QueryRow(ctx, query, user.Name, user.UserName, user.Email, user.Password).Scan(&user.ID, &user.CreatedAt)
 	if err != nil {
+
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			if pgErr.Code == "23505" {
+				return entity.ErrUserAlreadyExisist
+			}
+		}
+
 		return err
 	}
 
