@@ -9,7 +9,7 @@ import (
 )
 
 type BookingRepository interface {
-	CreateBooking(ctx context.Context, userID, eventID int64, seatIDs []int64) error
+	CreateBooking(ctx context.Context, userID, eventID int64, seatIDs []int64) (int64, error)
 }
 
 type bookingRepository struct {
@@ -20,12 +20,12 @@ func NewBookingRepository(db *pgxpool.Pool) BookingRepository{
 	return &bookingRepository{db:db}
 }
 
-func (r *bookingRepository) CreateBooking(ctx context.Context,userID, eventID int64, seatIDs []int64) error {
+func (r *bookingRepository) CreateBooking(ctx context.Context,userID, eventID int64, seatIDs []int64) (int64 ,error) {
 
 	// begin transaction
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
-		return err
+		return 0 ,err
 	}
 
 	defer tx.Rollback(ctx)
@@ -40,7 +40,7 @@ func (r *bookingRepository) CreateBooking(ctx context.Context,userID, eventID in
 
 	err = tx.QueryRow(ctx, queryBooking, userID, eventID).Scan(&bookingID)
 	if err != nil {
-		return err
+		return 0 ,err
 	}
 
 	// locking seat
@@ -59,18 +59,18 @@ func (r *bookingRepository) CreateBooking(ctx context.Context,userID, eventID in
 
 		cmdTag, err := tx.Exec(ctx, queryLockSeat, seatID)
 		if err != nil {
-			return err
+			return 0 , err
 		}
 
 		if cmdTag.RowsAffected() == 0 {
-			return errors.New("seat not available or already booked")
+			return 0 ,errors.New("seat not available or already booked")
 		}
 
 		_, err = tx.Exec(ctx, queryInsertItem, bookingID, seatID)
 		if err != nil {
-			return err
+			return 0 , err
 		}
 	}
-	return tx.Commit(ctx)
+	return bookingID ,tx.Commit(ctx)
 }
 

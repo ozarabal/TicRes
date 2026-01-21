@@ -1,12 +1,15 @@
 package repository
 
-import(
-
+import (
 	"context"
-	"ticres/internal/entity"
 	"fmt"
+	"ticres/internal/entity"
+	"time"
+
+	"encoding/json"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 )
 
 type EventRepository interface{
@@ -16,11 +19,14 @@ type EventRepository interface{
 
 type eventRepository struct {
 	db *pgxpool.Pool
+	redis *redis.Client
 }
 
-func NewEventRepository(db *pgxpool.Pool) EventRepository {
-	return &eventRepository{db:db}
+func NewEventRepository(db *pgxpool.Pool, rdb *redis.Client) EventRepository {
+	return &eventRepository{db:db, redis:rdb}
 }
+
+const eventsCacheKey = "events:list_all"
 
 func (r *eventRepository) CreateEvent(ctx context.Context, event *entity.Event) error {
     // 1. Mulai Transaksi
@@ -55,11 +61,22 @@ func (r *eventRepository) CreateEvent(ctx context.Context, event *entity.Event) 
         }
     }
 
+	r.redis.Del(ctx, eventsCacheKey)
+
     // 4. Commit Transaksi (Simpan Permanen)
     return tx.Commit(ctx)
 }
 
 func (r *eventRepository) GetAllEvents(ctx context.Context) ([]entity.Event, error){
+
+	cachedData, err := r.redis.Get(ctx, eventsCacheKey).Result()
+	if err == nil {
+		var events []entity.Event
+		if  err:= json.Unmarshal([]byte(cachedData), &events); err == nil {
+			return events, nil
+		}
+	}
+
 	query := `SELECT event_id ,name, location, date, capacity, created_at FROM events`
 
 	rows, err := r.db.Query(ctx, query)
@@ -79,6 +96,10 @@ func (r *eventRepository) GetAllEvents(ctx context.Context) ([]entity.Event, err
 			return nil, err
 		}
 		events = append(events,evt)
+	}
+
+	if data, err := json.Marshal(events); err == nil {
+		r.redis.Set(ctx , eventsCacheKey, data, 10*time.Minute)
 	}
 
 	return events, nil 

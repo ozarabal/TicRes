@@ -30,13 +30,16 @@ func (h *BookingHandler) Create(c *gin.Context) {
 
 	userID := int64(userIDFloat.(float64))
 
+	userEmail := "customer@example.com"
+
+
 	var req bookRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	err := h.bookingUC.BookSeats(c.Request.Context(), userID, req.EventID, req.SeatIDs)
+	err := h.bookingUC.BookSeats(c.Request.Context(), userID, req.EventID, req.SeatIDs, userEmail)
 	if err != nil {
         // Cek jika errornya karena kursi penuh
         if err.Error() == "seat not available or already booked" {
@@ -47,6 +50,6 @@ func (h *BookingHandler) Create(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"message": "Booking successful"})
+	c.JSON(http.StatusCreated, gin.H{"message": "Booking successful, check your email"})
 
 }

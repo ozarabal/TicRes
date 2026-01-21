@@ -9,6 +9,7 @@ import (
 	"ticres/internal/delivery/http/middleware"
 	"ticres/internal/repository"
 	"ticres/internal/usecase"
+	"ticres/internal/worker"
 	"ticres/pkg/database"
 
 	"github.com/gin-gonic/gin"
@@ -34,17 +35,25 @@ func main() {
 	}
 	defer dbPool.Close()
 
+	redisClient, err := database.NewRedClient(cfg.Cache.Host, cfg.Cache.Port ,cfg.Cache.Password)
+	if err != nil{
+		log.Fatalf("Gagal connect Redis: %v", err)
+	}
+
+	notifWorker := worker.NewNotificationWorker()
+	notifWorker.Start()
+
 	// 3. Init Layers (Dependency Injection)
 	// Repo butuh DB
 	userRepo := repository.NewUserRepository(dbPool)
-	eventRepo := repository.NewEventRepository(dbPool)
+	eventRepo := repository.NewEventRepository(dbPool, redisClient)
 	bookingRepo := repository.NewBookingRepository(dbPool)
 	
 	// Usecase butuh Repo & Timeout Context
 	timeoutContext := time.Duration(5) * time.Second
 	userUsecase := usecase.NewUserUsecase(userRepo, timeoutContext, cfg.JWT.Secret, cfg.JWT.ExpTime)
 	eventUseCase := usecase.NewEventUsecase(eventRepo, timeoutContext)
-	bookingUseCase := usecase.NewBookingUsecase(bookingRepo, timeoutContext)
+	bookingUseCase := usecase.NewBookingUsecase(bookingRepo, timeoutContext, notifWorker)
 
 	// Handler butuh Usecase
 	userHandler := delivery.NewUserHandler(userUsecase)

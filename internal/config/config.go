@@ -6,6 +6,7 @@ type Config struct {
 	Server ServerConfig
 	DB     DatabaseConfig
 	JWT		JWTConfig
+	Cache	RedisConfig
 }
 
 type ServerConfig struct {
@@ -15,6 +16,12 @@ type ServerConfig struct {
 type JWTConfig struct{
 	Secret 	string
 	ExpTime int
+}
+
+type RedisConfig struct{
+	Host  	string
+	Port	string
+	Password string
 }
 
 
@@ -45,6 +52,9 @@ func LoadConfig() (*Config, error) {
 	cfg.DB.Name = viper.GetString("DB_NAME")
 	cfg.JWT.Secret = viper.GetString("JWT_SECRET")
 	cfg.JWT.ExpTime = viper.GetInt("JWT_EXP_TIME")
+	cfg.Cache.Host = viper.GetString("CACHE_HOST")
+	cfg.Cache.Password = viper.GetString("CACHE_PASSWORD")
+	cfg.Cache.Port = viper.GetString("CACHE_PORT")
 
 	return &cfg, nil
 }

@@ -17,6 +17,8 @@ MIGRATE_PATH=db/migrations
 docker-up:
 	docker run --name ticket-postgres -e POSTGRES_USER=$(DB_USER) -e POSTGRES_PASSWORD=$(DB_PASSWORD) -e POSTGRES_DB=$(DB_NAME) -p $(DB_PORT):5432 -d postgres:alpine
 
+docker-upc:
+	docker run --name ticket-redis -p 6379:6379 -d redis:alpine
 # Mematikan container
 docker-down:
 	docker stop ticket-postgres && docker rm ticket-postgres
