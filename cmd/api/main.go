@@ -37,13 +37,19 @@ func main() {
 	// 3. Init Layers (Dependency Injection)
 	// Repo butuh DB
 	userRepo := repository.NewUserRepository(dbPool)
+	eventRepo := repository.NewEventRepository(dbPool)
+	bookingRepo := repository.NewBookingRepository(dbPool)
 	
 	// Usecase butuh Repo & Timeout Context
 	timeoutContext := time.Duration(5) * time.Second
 	userUsecase := usecase.NewUserUsecase(userRepo, timeoutContext, cfg.JWT.Secret, cfg.JWT.ExpTime)
-	
+	eventUseCase := usecase.NewEventUsecase(eventRepo, timeoutContext)
+	bookingUseCase := usecase.NewBookingUsecase(bookingRepo, timeoutContext)
+
 	// Handler butuh Usecase
 	userHandler := delivery.NewUserHandler(userUsecase)
+	eventHandler := delivery.NewEventHandler(eventUseCase)
+	bookingHandler := delivery.NewBookingHandler(bookingUseCase)
 
 	// 4. Setup Router (Gin)
 	r := gin.Default()
@@ -57,6 +63,12 @@ func main() {
 		{
 			protected.GET("/me", userHandler.Me)
 		}
+
+		// events
+		protected.POST("/events", eventHandler.Create)
+		v1.GET("/events", eventHandler.List)
+
+		protected.POST("/bookings", bookingHandler.Create)
     }
 
 	// 5. Run Server
