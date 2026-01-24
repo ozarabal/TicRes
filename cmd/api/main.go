@@ -1,7 +1,12 @@
 package main
 
 import (
+	"context"
+	"net/http"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"ticres/internal/config"
@@ -51,6 +56,7 @@ func main() {
 	
 	// Usecase butuh Repo & Timeout Context
 	timeoutContext := time.Duration(5) * time.Second
+
 	userUsecase := usecase.NewUserUsecase(userRepo, timeoutContext, cfg.JWT.Secret, cfg.JWT.ExpTime)
 	eventUseCase := usecase.NewEventUsecase(eventRepo, timeoutContext)
 	bookingUseCase := usecase.NewBookingUsecase(bookingRepo, timeoutContext, notifWorker)
@@ -80,9 +86,35 @@ func main() {
 		protected.POST("/bookings", bookingHandler.Create)
     }
 
-	// 5. Run Server
-	log.Printf("Server berjalan di port %s", cfg.Server.Port)
-	if err := r.Run(":" + cfg.Server.Port); err != nil {
-		log.Fatalf("Gagal menjalankan server: %v", err)
+	// Graceful shutdown Setup
+
+	srv := &http.Server{
+		Addr: ":" + cfg.Server.Port,
+		Handler: r,
 	}
+
+	// 5. Run Server
+	go func() {
+		log.Printf("🚀 Server berjalan di port %s", cfg.Server.Port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Gagal menjalankan server: %v", err)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	log.Println("Shutting down server...")
+
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil{
+		log.Fatal("Server forced to shutdown:", err)
+	}
+
+	notifWorker.Stop()
+
+	log.Print("Server exiting...")
 }
