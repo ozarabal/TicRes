@@ -46,7 +46,7 @@ func (r *userRepository) CreateUser(ctx context.Context, user *entity.User) erro
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) {
 			if pgErr.Code == "23505" {
-				return entity.ErrUserAlreadyExisist
+				return entity.ErrUserAlreadyExsist
 			}
 		}
 

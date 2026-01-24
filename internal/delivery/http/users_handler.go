@@ -49,7 +49,7 @@ func (h *UserHandler) Register(c *gin.Context) {
 	// Kita gunakan Context dari Gin (c.Request.Context()) agar trace-nya nyambung
 	if err := h.userUsecase.Register(c.Request.Context(), user); err != nil {
 
-		if err == entity.ErrUserAlreadyExisist{
+		if err == entity.ErrUserAlreadyExsist{
 			c.JSON(http.StatusConflict, gin.H{"error": "Email already registered"})
 			return
 		}
