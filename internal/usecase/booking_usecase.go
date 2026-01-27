@@ -4,20 +4,26 @@ import(
 	"time"
 	"context"
 	"ticres/internal/repository"
-	"ticres/internal/worker"
+	// "ticres/internal/worker"
 )
 
 type BookingUsecase interface {
 	BookSeats(ctx context.Context, userID, eventID int64, seatIDs []int64, userEmail string) error
 }
 
+type NotificationService interface {
+	SendNotification(bookingID int64, email, message string)
+}
+
 type bookingUsecase struct {
 	bookingRepo    repository.BookingRepository
 	contextTimeout time.Duration
-	notifWorker    *worker.NotificationWorker
+	// notifWorker    *worker.NotificationWorker
+	notifWorker    NotificationService
+
 }
 
-func NewBookingUsecase(repo repository.BookingRepository, timeout time.Duration, notifWorker *worker.NotificationWorker) BookingUsecase {
+func NewBookingUsecase(repo repository.BookingRepository, timeout time.Duration, notifWorker NotificationService) BookingUsecase {
 	return &bookingUsecase{bookingRepo: repo, contextTimeout: timeout, notifWorker: notifWorker}
 }
 
