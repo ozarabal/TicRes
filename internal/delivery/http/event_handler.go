@@ -2,6 +2,7 @@ package http
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	"ticres/internal/entity"
@@ -63,4 +64,20 @@ func (h *EventHandler) List(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": events})
+}
+
+func (h *EventHandler) Delete(c *gin.Context) {
+	// Ambil ID dari URL param /events/:id
+	idParam := c.Param("id")
+	eventID, _ := strconv.ParseInt(idParam, 10, 64)
+
+	err := h.eventUsecase.CancelEvent(c.Request.Context(), eventID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Event cancelled. Refund process started in background.",
+	})
 }

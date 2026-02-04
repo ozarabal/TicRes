@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 
-	// "ticres/internal/entity"
+	"ticres/internal/entity"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type BookingRepository interface {
 	CreateBooking(ctx context.Context, userID, eventID int64, seatIDs []int64) (int64, error)
+	GetBookingsByEventID(ctx context.Context, eventID int64) ([]entity.Booking, error)
+	UpdateBookingStatus(ctx context.Context, bookingID int64, status string) error 
 }
 
 type bookingRepository struct {
@@ -72,5 +74,38 @@ func (r *bookingRepository) CreateBooking(ctx context.Context,userID, eventID in
 		}
 	}
 	return bookingID ,tx.Commit(ctx)
+}
+
+func (r *bookingRepository) GetBookingsByEventID(ctx context.Context, eventID int64) ([]entity.Booking, error) {
+    query := `
+        SELECT booking_id, user_id, event_id, status, total_amount, email -- Asumsi ada kolom email di tabel bookings atau join ke users
+        FROM bookings 
+        WHERE event_id = $1 AND status IN ('PAID', 'PENDING')
+    `
+    // Note: Jika email ada di tabel users, Anda harus melakukan JOIN SQL disini.
+    // Contoh: SELECT b.booking_id, u.email ... FROM bookings b JOIN users u ON b.user_id = u.user_id ...
+    
+    rows, err := r.db.Query(ctx, query, eventID)
+    if err != nil {
+        return nil, err
+    }
+    defer rows.Close()
+
+    var bookings []entity.Booking
+    for rows.Next() {
+        var b entity.Booking
+        // Scan sesuai struktur entity Anda
+        if err := rows.Scan(&b.ID, &b.UserID, &b.EventID, &b.Status); err != nil {
+            return nil, err
+        }
+        bookings = append(bookings, b)
+    }
+    return bookings, nil
+}
+
+func (r *bookingRepository) UpdateBookingStatus(ctx context.Context, bookingID int64, status string) error {
+    query := `UPDATE bookings SET status = $1 WHERE booking_id = $2`
+    _, err := r.db.Exec(ctx, query, status, bookingID)
+    return err
 }
 

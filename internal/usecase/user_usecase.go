@@ -86,6 +86,7 @@ func (uc *userUsecase) Login(ctx context.Context, email, password string) (strin
     claims := jwt.MapClaims{
         "user_id": user.ID,
         "email":   user.Email,
+		"role" : user.Role,
         "exp":     time.Now().Add(time.Duration(uc.jwtExp) * time.Hour).Unix(), // Expired kapan
     }
 

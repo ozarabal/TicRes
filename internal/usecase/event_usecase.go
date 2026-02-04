@@ -11,11 +11,14 @@ import (
 type EventUsecase interface {
 	CreateEvent(ctx context.Context, event *entity.Event) error
 	ListEvents(ctx context.Context) ([]entity.Event, error)
+	EditEvent(ctx context.Context, event *entity.Event, prev int64) error
+	CancelEvent(ctx context.Context, eventID int64) error
 }
 
 type eventUsecase struct {
 	eventRepo      repository.EventRepository
 	contextTimeout time.Duration
+	worker			NotificationService
 }
 
 func NewEventUsecase(repo repository.EventRepository, timeout time.Duration) EventUsecase {
@@ -32,4 +35,31 @@ func (uc *eventUsecase) ListEvents(ctx context.Context) ([]entity.Event, error) 
 	ctx, cancel := context.WithTimeout(ctx, uc.contextTimeout)
 	defer cancel()
 	return uc.eventRepo.GetAllEvents(ctx)
+}
+
+func (uc *eventUsecase) EditEvent(ctx context.Context, event *entity.Event, prev int64) error {
+	ctx, cancel := context.WithTimeout(ctx, uc.contextTimeout)
+	defer cancel()
+	return uc.eventRepo.UpdateEvent(ctx, event, prev)
+}
+
+func (uc *eventUsecase) CancelEvent(ctx context.Context, eventID int64) error {
+    ctx, cancel := context.WithTimeout(ctx, uc.contextTimeout)
+    defer cancel()
+
+    // 1. Cek apakah event ada (Opsional, tapi baik untuk validasi)
+    // ...
+
+    // 2. Update Status Event -> CANCELLED (Synchronous)
+    // Agar user tidak bisa booking lagi detik ini juga.
+    err := uc.eventRepo.UpdateEventStatus(ctx, eventID, "CANCELLED")
+    if err != nil {
+        return err
+    }
+
+    // 3. Trigger Refund Process di Background (Asynchronous)
+    // Gunakan method baru di worker
+    uc.worker.EnqueueCancellation(eventID)
+
+    return nil
 }

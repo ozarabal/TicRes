@@ -26,3 +26,13 @@ func (m *MockUserRepo) GetUserByEmail(ctx context.Context, email string) (*entit
 
 	return args.Get(0).(*entity.User), args.Error(1)
 }
+
+func (m *MockUserRepo) GetUserByID(ctx context.Context, id int) (*entity.User, error) {
+	args := m.Called(ctx,id)
+
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+
+	return args.Get(0).(*entity.User), args.Error(1)
+}

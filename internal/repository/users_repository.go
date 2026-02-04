@@ -13,6 +13,7 @@ import (
 type UserRepository interface {
 	CreateUser(ctx context.Context, user *entity.User) error
 	GetUserByEmail(ctx context.Context, email string) (*entity.User, error)
+	GetUserByID(ctx context.Context, id int) (*entity.User, error) 
 }
 
 // 2. Implementasi Interface
@@ -71,6 +72,30 @@ func (r *userRepository) GetUserByEmail(ctx context.Context, email string) (*ent
 		&user.CreatedAt,
 	)
 	
+	if err != nil {
+		return nil, err
+	}
+
+	return &user, nil
+}
+
+func (r *userRepository) GetUserByID(ctx context.Context, ID int) (*entity.User, error) {
+
+	query := `
+		SELECT * FROM users where user_id=$1
+	`
+
+	var user entity.User
+
+	err := r.db.QueryRow(ctx, query, ID).Scan(
+		&user.ID, 
+		&user.Name,
+		&user.UserName, 
+		&user.Email, 
+		&user.Password, 
+		&user.CreatedAt,
+	)
+
 	if err != nil {
 		return nil, err
 	}

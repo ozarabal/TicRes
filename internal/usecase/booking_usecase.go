@@ -13,6 +13,7 @@ type BookingUsecase interface {
 
 type NotificationService interface {
 	SendNotification(bookingID int64, email, message string)
+	EnqueueCancellation(eventID int64)
 }
 
 type bookingUsecase struct {

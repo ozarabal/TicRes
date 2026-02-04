@@ -9,5 +9,6 @@ type Event struct{
 	Date      time.Time `json:"date"`
 	Capacity  int       `json:"capacity"`
 	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 

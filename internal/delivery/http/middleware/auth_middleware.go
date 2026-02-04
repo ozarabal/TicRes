@@ -50,10 +50,11 @@ func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 		if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
 			// Ambil user_id (perhatikan tipe datanya, jwt biasanya menaruh angka sebagai float64)
 			userID := claims["user_id"]
-			
+			role := claims["role"]
 			// 5. Simpan ke Context Gin
 			// Ini kuncinya! Handler selanjutnya bisa akses user_id lewat c.Get("userID")
 			c.Set("userID", userID)
+			c.Set("role", role)
 			
 			c.Next() // Lanjut ke handler berikutnya (misal: Booking Ticket)
 		} else {

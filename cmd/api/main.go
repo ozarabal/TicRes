@@ -45,8 +45,7 @@ func main() {
 		log.Fatalf("Gagal connect Redis: %v", err)
 	}
 
-	notifWorker := worker.NewNotificationWorker()
-	notifWorker.Start()
+	
 
 	// 3. Init Layers (Dependency Injection)
 	// Repo butuh DB
@@ -56,6 +55,8 @@ func main() {
 	
 	// Usecase butuh Repo & Timeout Context
 	timeoutContext := time.Duration(5) * time.Second
+	notifWorker := worker.NewNotificationWorker(userRepo, bookingRepo)
+	notifWorker.Start()
 
 	userUsecase := usecase.NewUserUsecase(userRepo, timeoutContext, cfg.JWT.Secret, cfg.JWT.ExpTime)
 	eventUseCase := usecase.NewEventUsecase(eventRepo, timeoutContext)
@@ -66,6 +67,7 @@ func main() {
 	eventHandler := delivery.NewEventHandler(eventUseCase)
 	bookingHandler := delivery.NewBookingHandler(bookingUseCase)
 
+	
 	// 4. Setup Router (Gin)
 	r := gin.Default()
     v1 := r.Group("/api/v1")
@@ -84,6 +86,13 @@ func main() {
 		v1.GET("/events", eventHandler.List)
 
 		protected.POST("/bookings", bookingHandler.Create)
+
+		// Pastikan diproteksi Admin Middleware
+		adminGroup := v1.Group("/admin")
+		adminGroup.Use(middleware.AuthMiddleware(cfg.JWT.Secret), middleware.AdminMiddleware(cfg.JWT.Secret)) 
+		{
+			adminGroup.DELETE("/events/:id", eventHandler.Delete)
+		}
     }
 
 	// Graceful shutdown Setup

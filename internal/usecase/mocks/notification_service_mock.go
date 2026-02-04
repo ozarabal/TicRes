@@ -8,3 +8,7 @@ func (m *MockNotificationService) SendNotification(bookingID int64, email, messa
 	// Karena void function, kita cuma perlu rekam panggilan
 	m.Called(bookingID, email, message)
 }
+
+func (m *MockNotificationService) EnqueueCancellation(eventID int64){
+	m.Called(eventID)
+}
