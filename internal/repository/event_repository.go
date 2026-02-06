@@ -12,10 +12,13 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-type EventRepository interface{
+type EventRepository interface {
 	CreateEvent(ctx context.Context, event *entity.Event) error
 	GetAllEvents(ctx context.Context) ([]entity.Event, error)
+	GetEventsWithSearch(ctx context.Context, search string, page, limit int) ([]entity.Event, int, error)
 	GetEventByID(ctx context.Context, eventID int64) (*entity.Event, error)
+	GetEventWithSeats(ctx context.Context, eventID int64) (*entity.EventWithSeats, error)
+	GetSeatsByEventID(ctx context.Context, eventID int64) ([]entity.Seat, error)
 	UpdateEvent(ctx context.Context, event *entity.Event, preCapacity int64) error
 	UpdateEventStatus(ctx context.Context, eventID int64, status string) error
 }
@@ -174,11 +177,97 @@ func (r *eventRepository) UpdateEvent(ctx context.Context, event *entity.Event, 
 }
 
 func (r *eventRepository) UpdateEventStatus(ctx context.Context, eventID int64, status string) error {
-    query := `UPDATE events SET status = $1, updated_at = NOW() WHERE event_id = $2`
-    _, err := r.db.Exec(ctx, query, status, eventID)
-    
-    // Hapus cache agar user langsung lihat status barunya
-    r.redis.Del(ctx, "events:list_all") 
-    
-    return err
+	query := `UPDATE events SET status = $1, updated_at = NOW() WHERE event_id = $2`
+	_, err := r.db.Exec(ctx, query, status, eventID)
+
+	r.redis.Del(ctx, "events:list_all")
+
+	return err
+}
+
+func (r *eventRepository) GetEventsWithSearch(ctx context.Context, search string, page, limit int) ([]entity.Event, int, error) {
+	// Count total
+	countQuery := `SELECT COUNT(*) FROM events WHERE name ILIKE $1`
+	searchPattern := "%" + search + "%"
+
+	var total int
+	err := r.db.QueryRow(ctx, countQuery, searchPattern).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Get paginated data
+	offset := (page - 1) * limit
+	query := `
+		SELECT event_id, name, location, date, capacity, COALESCE(status, 'available') as status, created_at, COALESCE(updated_at, created_at) as updated_at
+		FROM events
+		WHERE name ILIKE $1
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3
+	`
+
+	rows, err := r.db.Query(ctx, query, searchPattern, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var events []entity.Event
+	for rows.Next() {
+		var evt entity.Event
+		var status string
+		err := rows.Scan(&evt.ID, &evt.Name, &evt.Location, &evt.Date, &evt.Capacity, &status, &evt.CreatedAt, &evt.UpdatedAt)
+		if err != nil {
+			return nil, 0, err
+		}
+		events = append(events, evt)
+	}
+
+	return events, total, nil
+}
+
+func (r *eventRepository) GetEventWithSeats(ctx context.Context, eventID int64) (*entity.EventWithSeats, error) {
+	// Get event
+	event, err := r.GetEventByID(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get seats
+	seats, err := r.GetSeatsByEventID(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &entity.EventWithSeats{
+		Event: *event,
+		Seats: seats,
+	}, nil
+}
+
+func (r *eventRepository) GetSeatsByEventID(ctx context.Context, eventID int64) ([]entity.Seat, error) {
+	query := `
+		SELECT seat_id, event_id, seat_number, is_booked
+		FROM seats
+		WHERE event_id = $1
+		ORDER BY seat_id
+	`
+
+	rows, err := r.db.Query(ctx, query, eventID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var seats []entity.Seat
+	for rows.Next() {
+		var seat entity.Seat
+		err := rows.Scan(&seat.ID, &seat.EventID, &seat.SeatNumber, &seat.IsBooked)
+		if err != nil {
+			return nil, err
+		}
+		seats = append(seats, seat)
+	}
+
+	return seats, nil
 }

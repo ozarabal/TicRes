@@ -13,10 +13,10 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// 1. Definisi Interface
 type UserUsecase interface {
 	Register(ctx context.Context, user *entity.User) error
 	Login(ctx context.Context, email string, password string) (string, error)
+	GetProfile(ctx context.Context, userID int) (*entity.User, error)
 }
 
 // 2. Struct Implementasi
@@ -99,4 +99,11 @@ func (uc *userUsecase) Login(ctx context.Context, email, password string) (strin
     }
 
     return signedToken, nil
+}
+
+func (uc *userUsecase) GetProfile(ctx context.Context, userID int) (*entity.User, error) {
+	ctx, cancel := context.WithTimeout(ctx, uc.contextTimeout)
+	defer cancel()
+
+	return uc.userRepo.GetUserByID(ctx, userID)
 }

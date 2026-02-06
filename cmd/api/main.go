@@ -2,15 +2,15 @@ package main
 
 import (
 	"context"
-	"net/http"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"ticres/internal/config"
-	delivery "ticres/internal/delivery/http" // Alias biar gak bentrok sama package net/http
+	delivery "ticres/internal/delivery/http"
 	"ticres/internal/delivery/http/middleware"
 	"ticres/internal/repository"
 	"ticres/internal/usecase"
@@ -40,20 +40,16 @@ func main() {
 	}
 	defer dbPool.Close()
 
-	redisClient, err := database.NewRedClient(cfg.Cache.Host, cfg.Cache.Port ,cfg.Cache.Password)
-	if err != nil{
+	redisClient, err := database.NewRedClient(cfg.Cache.Host, cfg.Cache.Port, cfg.Cache.Password)
+	if err != nil {
 		log.Fatalf("Gagal connect Redis: %v", err)
 	}
 
-	
-
 	// 3. Init Layers (Dependency Injection)
-	// Repo butuh DB
 	userRepo := repository.NewUserRepository(dbPool)
 	eventRepo := repository.NewEventRepository(dbPool, redisClient)
 	bookingRepo := repository.NewBookingRepository(dbPool)
-	
-	// Usecase butuh Repo & Timeout Context
+
 	timeoutContext := time.Duration(5) * time.Second
 	notifWorker := worker.NewNotificationWorker(userRepo, bookingRepo)
 	notifWorker.Start()
@@ -62,51 +58,67 @@ func main() {
 	eventUseCase := usecase.NewEventUsecase(eventRepo, timeoutContext, notifWorker)
 	bookingUseCase := usecase.NewBookingUsecase(bookingRepo, timeoutContext, notifWorker)
 
-	// Handler butuh Usecase
-	userHandler := delivery.NewUserHandler(userUsecase)
+	// Handlers
+	userHandler := delivery.NewUserHandler(userUsecase, bookingUseCase)
 	eventHandler := delivery.NewEventHandler(eventUseCase)
 	bookingHandler := delivery.NewBookingHandler(bookingUseCase)
+	adminHandler := delivery.NewAdminHandler(bookingUseCase)
 
-	
 	// 4. Setup Router (Gin)
 	r := gin.Default()
-    v1 := r.Group("/api/v1")
-    {
-        v1.POST("/register", userHandler.Register)
-        v1.POST("/login", userHandler.Login)
 
+	// CORS middleware for frontend
+	r.Use(func(c *gin.Context) {
+		c.Header("Access-Control-Allow-Origin", "*")
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Authorization")
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+		c.Next()
+	})
+
+	v1 := r.Group("/api/v1")
+	{
+		// Public routes
+		v1.POST("/register", userHandler.Register)
+		v1.POST("/login", userHandler.Login)
+		v1.GET("/events", eventHandler.List)
+		v1.GET("/events/:id", eventHandler.GetByID)
+
+		// Protected routes (authenticated users)
 		protected := v1.Group("/")
 		protected.Use(middleware.AuthMiddleware(cfg.JWT.Secret))
 		{
 			protected.GET("/me", userHandler.Me)
+			protected.GET("/me/bookings", userHandler.GetMyBookings)
+			protected.POST("/events", eventHandler.Create)
+			protected.POST("/bookings", bookingHandler.Create)
 		}
 
-		// events
-		protected.POST("/events", eventHandler.Create)
-		v1.GET("/events", eventHandler.List)
-
-		protected.POST("/bookings", bookingHandler.Create)
-
-		// Pastikan diproteksi Admin Middleware
+		// Admin routes
 		adminGroup := v1.Group("/admin")
-		adminGroup.Use(middleware.AuthMiddleware(cfg.JWT.Secret), middleware.AdminMiddleware(cfg.JWT.Secret)) 
+		adminGroup.Use(middleware.AuthMiddleware(cfg.JWT.Secret), middleware.AdminMiddleware(cfg.JWT.Secret))
 		{
+			adminGroup.PUT("/events/:id", eventHandler.Update)
 			adminGroup.DELETE("/events/:id", eventHandler.Delete)
+			adminGroup.GET("/bookings", adminHandler.GetAllBookings)
+			adminGroup.GET("/events/:id/bookings", adminHandler.GetEventBookings)
 		}
-    }
+	}
 
 	// Graceful shutdown Setup
-
 	srv := &http.Server{
-		Addr: ":" + cfg.Server.Port,
+		Addr:    ":" + cfg.Server.Port,
 		Handler: r,
 	}
 
 	// 5. Run Server
 	go func() {
-		log.Printf("🚀 Server berjalan di port %s", cfg.Server.Port)
+		log.Printf("Server running on port %s", cfg.Server.Port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Gagal menjalankan server: %v", err)
+			log.Fatalf("Failed to start server: %v", err)
 		}
 	}()
 
@@ -115,11 +127,10 @@ func main() {
 	<-quit
 	log.Println("Shutting down server...")
 
-
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := srv.Shutdown(ctx); err != nil{
+	if err := srv.Shutdown(ctx); err != nil {
 		log.Fatal("Server forced to shutdown:", err)
 	}
 

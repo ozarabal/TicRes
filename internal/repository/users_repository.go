@@ -58,20 +58,20 @@ func (r *userRepository) CreateUser(ctx context.Context, user *entity.User) erro
 }
 
 func (r *userRepository) GetUserByEmail(ctx context.Context, email string) (*entity.User, error) {
-	// TANTANGAN: Implementasikan Query Select disini
 	var user entity.User
-	
-	query := `SELECT user_id, name,username, email, password, created_at FROM users WHERE email = $1`
+
+	query := `SELECT user_id, name, username, email, password, role, created_at FROM users WHERE email = $1`
 
 	err := r.db.QueryRow(ctx, query, email).Scan(
-		&user.ID, 
+		&user.ID,
 		&user.Name,
-		&user.UserName, 
-		&user.Email, 
-		&user.Password, 
+		&user.UserName,
+		&user.Email,
+		&user.Password,
+		&user.Role,
 		&user.CreatedAt,
 	)
-	
+
 	if err != nil {
 		return nil, err
 	}
@@ -80,19 +80,17 @@ func (r *userRepository) GetUserByEmail(ctx context.Context, email string) (*ent
 }
 
 func (r *userRepository) GetUserByID(ctx context.Context, ID int) (*entity.User, error) {
-
-	query := `
-		SELECT * FROM users where user_id=$1
-	`
+	query := `SELECT user_id, name, username, email, password, role, created_at FROM users WHERE user_id = $1`
 
 	var user entity.User
 
 	err := r.db.QueryRow(ctx, query, ID).Scan(
-		&user.ID, 
+		&user.ID,
 		&user.Name,
-		&user.UserName, 
-		&user.Email, 
-		&user.Password, 
+		&user.UserName,
+		&user.Email,
+		&user.Password,
+		&user.Role,
 		&user.CreatedAt,
 	)
 

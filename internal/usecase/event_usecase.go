@@ -11,6 +11,9 @@ import (
 type EventUsecase interface {
 	CreateEvent(ctx context.Context, event *entity.Event) error
 	ListEvents(ctx context.Context) ([]entity.Event, error)
+	ListEventsWithSearch(ctx context.Context, search string, page, limit int) ([]entity.Event, int, error)
+	GetEventByID(ctx context.Context, eventID int64) (*entity.Event, error)
+	GetEventWithSeats(ctx context.Context, eventID int64) (*entity.EventWithSeats, error)
 	EditEvent(ctx context.Context, event *entity.Event, prev int64) error
 	CancelEvent(ctx context.Context, eventID int64) error
 }
@@ -35,6 +38,24 @@ func (uc *eventUsecase) ListEvents(ctx context.Context) ([]entity.Event, error) 
 	ctx, cancel := context.WithTimeout(ctx, uc.contextTimeout)
 	defer cancel()
 	return uc.eventRepo.GetAllEvents(ctx)
+}
+
+func (uc *eventUsecase) ListEventsWithSearch(ctx context.Context, search string, page, limit int) ([]entity.Event, int, error) {
+	ctx, cancel := context.WithTimeout(ctx, uc.contextTimeout)
+	defer cancel()
+	return uc.eventRepo.GetEventsWithSearch(ctx, search, page, limit)
+}
+
+func (uc *eventUsecase) GetEventByID(ctx context.Context, eventID int64) (*entity.Event, error) {
+	ctx, cancel := context.WithTimeout(ctx, uc.contextTimeout)
+	defer cancel()
+	return uc.eventRepo.GetEventByID(ctx, eventID)
+}
+
+func (uc *eventUsecase) GetEventWithSeats(ctx context.Context, eventID int64) (*entity.EventWithSeats, error) {
+	ctx, cancel := context.WithTimeout(ctx, uc.contextTimeout)
+	defer cancel()
+	return uc.eventRepo.GetEventWithSeats(ctx, eventID)
 }
 
 func (uc *eventUsecase) EditEvent(ctx context.Context, event *entity.Event, prev int64) error {
