@@ -21,8 +21,8 @@ type eventUsecase struct {
 	worker			NotificationService
 }
 
-func NewEventUsecase(repo repository.EventRepository, timeout time.Duration) EventUsecase {
-	return &eventUsecase{eventRepo: repo, contextTimeout: timeout}
+func NewEventUsecase(repo repository.EventRepository, timeout time.Duration, worker NotificationService) EventUsecase {
+	return &eventUsecase{eventRepo: repo, contextTimeout: timeout, worker: worker}
 }
 
 func (uc *eventUsecase) CreateEvent(ctx context.Context, event *entity.Event) error {

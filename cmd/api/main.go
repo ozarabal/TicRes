@@ -59,7 +59,7 @@ func main() {
 	notifWorker.Start()
 
 	userUsecase := usecase.NewUserUsecase(userRepo, timeoutContext, cfg.JWT.Secret, cfg.JWT.ExpTime)
-	eventUseCase := usecase.NewEventUsecase(eventRepo, timeoutContext)
+	eventUseCase := usecase.NewEventUsecase(eventRepo, timeoutContext, notifWorker)
 	bookingUseCase := usecase.NewBookingUsecase(bookingRepo, timeoutContext, notifWorker)
 
 	// Handler butuh Usecase
