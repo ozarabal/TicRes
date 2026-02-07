@@ -1,5 +1,3 @@
-refund_id, booking_id, amount, refund_date, reason.
-
 CREATE TABLE refund(
     refund_id SERIAL PRIMARY KEY,
     booking_id INTEGER,
