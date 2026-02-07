@@ -49,6 +49,13 @@ migrate-force:
 run:
 	go run cmd/api/main.go
 
+# Seed database dengan admin account dan sample events
+seed:
+	go run cmd/seed/main.go
+
+build:
+	go build ./...
+
 # Membersihkan file binary/cache
 clean:
 	go clean
