@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -16,15 +15,28 @@ import (
 	"ticres/internal/usecase"
 	"ticres/internal/worker"
 	"ticres/pkg/database"
+	"ticres/pkg/logger"
 
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
+	// 0. Initialize Logger
+	mode := os.Getenv("APP_MODE")
+	if mode == "" {
+		mode = "development"
+	}
+	if err := logger.Init(mode); err != nil {
+		panic("failed to initialize logger: " + err.Error())
+	}
+	defer logger.Sync()
+
+	logger.Info("starting application", logger.String("mode", mode))
+
 	// 1. Load Config
 	cfg, err := config.LoadConfig()
 	if err != nil {
-		log.Fatalf("Load config failed: %v", err)
+		logger.Fatal("load config failed", logger.Err(err))
 	}
 
 	// 2. Connect Database
@@ -36,14 +48,16 @@ func main() {
 		cfg.DB.Name,
 	)
 	if err != nil {
-		log.Fatalf("Database connection failed: %v", err)
+		logger.Fatal("database connection failed", logger.Err(err))
 	}
 	defer dbPool.Close()
+	logger.Info("database connected successfully")
 
 	redisClient, err := database.NewRedClient(cfg.Cache.Host, cfg.Cache.Port, cfg.Cache.Password)
 	if err != nil {
-		log.Fatalf("Gagal connect Redis: %v", err)
+		logger.Fatal("redis connection failed", logger.Err(err))
 	}
+	logger.Info("redis connected successfully")
 
 	// 3. Init Layers (Dependency Injection)
 	userRepo := repository.NewUserRepository(dbPool)
@@ -116,25 +130,25 @@ func main() {
 
 	// 5. Run Server
 	go func() {
-		log.Printf("Server running on port %s", cfg.Server.Port)
+		logger.Info("server starting", logger.String("port", cfg.Server.Port))
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Failed to start server: %v", err)
+			logger.Fatal("failed to start server", logger.Err(err))
 		}
 	}()
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	log.Println("Shutting down server...")
+	logger.Info("shutting down server...")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatal("Server forced to shutdown:", err)
+		logger.Fatal("server forced to shutdown", logger.Err(err))
 	}
 
 	notifWorker.Stop()
 
-	log.Print("Server exiting...")
+	logger.Info("server exited")
 }

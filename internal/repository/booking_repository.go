@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"ticres/internal/entity"
+	"ticres/pkg/logger"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -28,8 +29,15 @@ func NewBookingRepository(db *pgxpool.Pool) BookingRepository {
 }
 
 func (r *bookingRepository) CreateBooking(ctx context.Context, userID, eventID int64, seatIDs []int64) (int64, error) {
+	logger.Debug("creating booking",
+		logger.Int64("user_id", userID),
+		logger.Int64("event_id", eventID),
+		logger.Int("seat_count", len(seatIDs)),
+	)
+
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
+		logger.Error("failed to begin transaction", logger.Err(err))
 		return 0, err
 	}
 	defer tx.Rollback(ctx)
@@ -42,6 +50,7 @@ func (r *bookingRepository) CreateBooking(ctx context.Context, userID, eventID i
 	`
 	err = tx.QueryRow(ctx, queryBooking, userID, eventID).Scan(&bookingID)
 	if err != nil {
+		logger.Error("failed to insert booking", logger.Err(err))
 		return 0, err
 	}
 
@@ -51,20 +60,43 @@ func (r *bookingRepository) CreateBooking(ctx context.Context, userID, eventID i
 	for _, seatID := range seatIDs {
 		cmdTag, err := tx.Exec(ctx, queryLockSeat, seatID)
 		if err != nil {
+			logger.Error("failed to lock seat",
+				logger.Int64("seat_id", seatID),
+				logger.Err(err),
+			)
 			return 0, err
 		}
 		if cmdTag.RowsAffected() == 0 {
+			logger.Warn("seat not available",
+				logger.Int64("seat_id", seatID),
+				logger.Int64("booking_id", bookingID),
+			)
 			return 0, errors.New("seat not available or already booked")
 		}
 		_, err = tx.Exec(ctx, queryInsertItem, bookingID, seatID)
 		if err != nil {
+			logger.Error("failed to insert booking item", logger.Err(err))
 			return 0, err
 		}
 	}
-	return bookingID, tx.Commit(ctx)
+
+	if err := tx.Commit(ctx); err != nil {
+		logger.Error("failed to commit booking transaction", logger.Err(err))
+		return 0, err
+	}
+
+	logger.Info("booking created successfully",
+		logger.Int64("booking_id", bookingID),
+		logger.Int64("user_id", userID),
+		logger.Int64("event_id", eventID),
+		logger.Int("seat_count", len(seatIDs)),
+	)
+	return bookingID, nil
 }
 
 func (r *bookingRepository) GetBookingsByEventID(ctx context.Context, eventID int64) ([]entity.Booking, error) {
+	logger.Debug("fetching bookings by event ID", logger.Int64("event_id", eventID))
+
 	query := `
 		SELECT booking_id, user_id, event_id, status, created_at
 		FROM booking
@@ -72,6 +104,7 @@ func (r *bookingRepository) GetBookingsByEventID(ctx context.Context, eventID in
 	`
 	rows, err := r.db.Query(ctx, query, eventID)
 	if err != nil {
+		logger.Error("failed to query bookings by event ID", logger.Int64("event_id", eventID), logger.Err(err))
 		return nil, err
 	}
 	defer rows.Close()
@@ -80,14 +113,22 @@ func (r *bookingRepository) GetBookingsByEventID(ctx context.Context, eventID in
 	for rows.Next() {
 		var b entity.Booking
 		if err := rows.Scan(&b.ID, &b.UserID, &b.EventID, &b.Status, &b.CreatedAt); err != nil {
+			logger.Error("failed to scan booking row", logger.Err(err))
 			return nil, err
 		}
 		bookings = append(bookings, b)
 	}
+
+	logger.Debug("bookings fetched by event ID",
+		logger.Int64("event_id", eventID),
+		logger.Int("count", len(bookings)),
+	)
 	return bookings, nil
 }
 
 func (r *bookingRepository) GetBookingsByUserID(ctx context.Context, userID int64) ([]entity.BookingWithDetails, error) {
+	logger.Debug("fetching bookings by user ID", logger.Int64("user_id", userID))
+
 	query := `
 		SELECT b.booking_id, b.user_id, u.name, u.email, b.event_id, e.name, b.status, b.created_at
 		FROM booking b
@@ -98,6 +139,7 @@ func (r *bookingRepository) GetBookingsByUserID(ctx context.Context, userID int6
 	`
 	rows, err := r.db.Query(ctx, query, userID)
 	if err != nil {
+		logger.Error("failed to query bookings by user ID", logger.Int64("user_id", userID), logger.Err(err))
 		return nil, err
 	}
 	defer rows.Close()
@@ -106,15 +148,28 @@ func (r *bookingRepository) GetBookingsByUserID(ctx context.Context, userID int6
 	for rows.Next() {
 		var b entity.BookingWithDetails
 		if err := rows.Scan(&b.ID, &b.UserID, &b.UserName, &b.UserEmail, &b.EventID, &b.EventName, &b.Status, &b.CreatedAt); err != nil {
+			logger.Error("failed to scan booking row", logger.Err(err))
 			return nil, err
 		}
 		bookings = append(bookings, b)
 	}
+
+	logger.Debug("bookings fetched by user ID",
+		logger.Int64("user_id", userID),
+		logger.Int("count", len(bookings)),
+	)
 	return bookings, nil
 }
 
 func (r *bookingRepository) GetAllBookings(ctx context.Context, status, sortBy, sortOrder string, page, limit int) ([]entity.BookingWithDetails, int, error) {
-	// Build query with filters
+	logger.Debug("fetching all bookings",
+		logger.String("status", status),
+		logger.String("sort_by", sortBy),
+		logger.String("sort_order", sortOrder),
+		logger.Int("page", page),
+		logger.Int("limit", limit),
+	)
+
 	baseQuery := `
 		FROM booking b
 		JOIN users u ON b.user_id = u.user_id
@@ -130,15 +185,14 @@ func (r *bookingRepository) GetAllBookings(ctx context.Context, status, sortBy, 
 		argIndex++
 	}
 
-	// Count total
 	countQuery := "SELECT COUNT(*) " + baseQuery + whereClause
 	var total int
 	err := r.db.QueryRow(ctx, countQuery, args...).Scan(&total)
 	if err != nil {
+		logger.Error("failed to count bookings", logger.Err(err))
 		return nil, 0, err
 	}
 
-	// Validate sort fields
 	validSortFields := map[string]string{
 		"created_at": "b.created_at",
 		"status":     "b.status",
@@ -151,7 +205,6 @@ func (r *bookingRepository) GetAllBookings(ctx context.Context, status, sortBy, 
 		sortOrder = "desc"
 	}
 
-	// Build data query
 	offset := (page - 1) * limit
 	dataQuery := fmt.Sprintf(`
 		SELECT b.booking_id, b.user_id, u.name, u.email, b.event_id, e.name, b.status, b.created_at
@@ -164,6 +217,7 @@ func (r *bookingRepository) GetAllBookings(ctx context.Context, status, sortBy, 
 
 	rows, err := r.db.Query(ctx, dataQuery, args...)
 	if err != nil {
+		logger.Error("failed to query all bookings", logger.Err(err))
 		return nil, 0, err
 	}
 	defer rows.Close()
@@ -172,14 +226,27 @@ func (r *bookingRepository) GetAllBookings(ctx context.Context, status, sortBy, 
 	for rows.Next() {
 		var b entity.BookingWithDetails
 		if err := rows.Scan(&b.ID, &b.UserID, &b.UserName, &b.UserEmail, &b.EventID, &b.EventName, &b.Status, &b.CreatedAt); err != nil {
+			logger.Error("failed to scan booking row", logger.Err(err))
 			return nil, 0, err
 		}
 		bookings = append(bookings, b)
 	}
+
+	logger.Debug("all bookings fetched",
+		logger.Int("total", total),
+		logger.Int("returned", len(bookings)),
+	)
 	return bookings, total, nil
 }
 
 func (r *bookingRepository) GetBookingsWithDetailsByEventID(ctx context.Context, eventID int64, status, sortBy, sortOrder string) ([]entity.BookingWithDetails, error) {
+	logger.Debug("fetching bookings with details by event ID",
+		logger.Int64("event_id", eventID),
+		logger.String("status", status),
+		logger.String("sort_by", sortBy),
+		logger.String("sort_order", sortOrder),
+	)
+
 	baseQuery := `
 		SELECT b.booking_id, b.user_id, u.name, u.email, b.event_id, e.name, b.status, b.created_at
 		FROM booking b
@@ -195,7 +262,6 @@ func (r *bookingRepository) GetBookingsWithDetailsByEventID(ctx context.Context,
 		args = append(args, status)
 	}
 
-	// Validate sort fields
 	validSortFields := map[string]string{
 		"created_at": "b.created_at",
 		"status":     "b.status",
@@ -212,6 +278,10 @@ func (r *bookingRepository) GetBookingsWithDetailsByEventID(ctx context.Context,
 
 	rows, err := r.db.Query(ctx, baseQuery, args...)
 	if err != nil {
+		logger.Error("failed to query bookings with details by event ID",
+			logger.Int64("event_id", eventID),
+			logger.Err(err),
+		)
 		return nil, err
 	}
 	defer rows.Close()
@@ -220,15 +290,39 @@ func (r *bookingRepository) GetBookingsWithDetailsByEventID(ctx context.Context,
 	for rows.Next() {
 		var b entity.BookingWithDetails
 		if err := rows.Scan(&b.ID, &b.UserID, &b.UserName, &b.UserEmail, &b.EventID, &b.EventName, &b.Status, &b.CreatedAt); err != nil {
+			logger.Error("failed to scan booking row", logger.Err(err))
 			return nil, err
 		}
 		bookings = append(bookings, b)
 	}
+
+	logger.Debug("bookings with details fetched by event ID",
+		logger.Int64("event_id", eventID),
+		logger.Int("count", len(bookings)),
+	)
 	return bookings, nil
 }
 
 func (r *bookingRepository) UpdateBookingStatus(ctx context.Context, bookingID int64, status string) error {
+	logger.Debug("updating booking status",
+		logger.Int64("booking_id", bookingID),
+		logger.String("status", status),
+	)
+
 	query := `UPDATE booking SET status = $1 WHERE booking_id = $2`
 	_, err := r.db.Exec(ctx, query, status, bookingID)
-	return err
+	if err != nil {
+		logger.Error("failed to update booking status",
+			logger.Int64("booking_id", bookingID),
+			logger.String("status", status),
+			logger.Err(err),
+		)
+		return err
+	}
+
+	logger.Info("booking status updated",
+		logger.Int64("booking_id", bookingID),
+		logger.String("status", status),
+	)
+	return nil
 }

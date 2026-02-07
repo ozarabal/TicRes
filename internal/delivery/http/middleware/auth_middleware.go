@@ -5,25 +5,30 @@ import (
 	"net/http"
 	"strings"
 
+	"ticres/pkg/logger"
+
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// AuthMiddleware mengembalikan Gin HandlerFunc
-// Kita butuh jwtSecret untuk memvalidasi tanda tangan token
 func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 1. Ambil Header Authorization
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
+			logger.Debug("middleware: missing authorization header",
+				logger.String("path", c.Request.URL.Path),
+				logger.String("method", c.Request.Method),
+			)
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header is required"})
-			c.Abort() // Stop! Jangan lanjut ke handler berikutnya
+			c.Abort()
 			return
 		}
 
-		// 2. Cek Format (Harus "Bearer <token>")
 		parts := strings.Split(authHeader, " ")
 		if len(parts) != 2 || parts[0] != "Bearer" {
+			logger.Warn("middleware: invalid authorization format",
+				logger.String("path", c.Request.URL.Path),
+			)
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid authorization format"})
 			c.Abort()
 			return
@@ -31,9 +36,7 @@ func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 
 		tokenString := parts[1]
 
-		// 3. Parse & Validasi Token
 		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-			// Validasi algoritma signing (Wajib!)
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 			}
@@ -41,23 +44,33 @@ func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 		})
 
 		if err != nil || !token.Valid {
+			logger.Warn("middleware: invalid or expired token",
+				logger.String("path", c.Request.URL.Path),
+				logger.Err(err),
+			)
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
 			c.Abort()
 			return
 		}
 
-		// 4. Ambil Claims (Data dalam token)
 		if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
-			// Ambil user_id (perhatikan tipe datanya, jwt biasanya menaruh angka sebagai float64)
 			userID := claims["user_id"]
 			role := claims["role"]
-			// 5. Simpan ke Context Gin
-			// Ini kuncinya! Handler selanjutnya bisa akses user_id lewat c.Get("userID")
+
 			c.Set("userID", userID)
 			c.Set("role", role)
-			
-			c.Next() // Lanjut ke handler berikutnya (misal: Booking Ticket)
+
+			logger.Debug("middleware: user authenticated",
+				logger.Any("user_id", userID),
+				logger.Any("role", role),
+				logger.String("path", c.Request.URL.Path),
+			)
+
+			c.Next()
 		} else {
+			logger.Warn("middleware: invalid token claims",
+				logger.String("path", c.Request.URL.Path),
+			)
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token claims"})
 			c.Abort()
 		}

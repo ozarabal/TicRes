@@ -2,11 +2,12 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"ticres/internal/entity"
 	"time"
 
-	"encoding/json"
+	"ticres/internal/entity"
+	"ticres/pkg/logger"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
@@ -35,48 +36,68 @@ func NewEventRepository(db *pgxpool.Pool, rdb *redis.Client) EventRepository {
 const eventsCacheKey = "events:list_all"
 
 func (r *eventRepository) CreateEvent(ctx context.Context, event *entity.Event) error {
-    // 1. Mulai Transaksi
-    tx, err := r.db.Begin(ctx)
-    if err != nil {
-        return err
-    }
-    // Safety net: Rollback jika function selesai tanpa Commit
-    defer tx.Rollback(ctx) 
+	logger.Debug("creating event",
+		logger.String("name", event.Name),
+		logger.String("location", event.Location),
+		logger.Int("capacity", event.Capacity),
+	)
 
-    // 2. Insert Event
-    queryEvent := `
-        INSERT INTO events (name, location, date, capacity, created_at)
-        VALUES ($1, $2, $3, $4, NOW())
-        RETURNING event_id, created_at
-    `
-    // Perhatikan: Kita pakai `tx.QueryRow`, bukan `r.db.QueryRow`
-    err = tx.QueryRow(ctx, queryEvent, event.Name, event.Location, event.Date, event.Capacity).Scan(&event.ID, &event.CreatedAt)
-    if err != nil {
-        return err
-    }
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		logger.Error("failed to begin transaction", logger.Err(err))
+		return err
+	}
+	defer tx.Rollback(ctx)
 
-    querySeat := `INSERT INTO seats (event_id, seat_number, is_booked) VALUES ($1, $2, False)`
-    
-    for i := 1; i <= event.Capacity; i++ {
-        seatNum := fmt.Sprintf("%d-%d",event.ID , i)
-        _, err := tx.Exec(ctx, querySeat, event.ID, seatNum)
-        if err != nil {
-            return err // Jika gagal generate kursi, Event juga batal dibuat (Rollback otomatis)
-        }
-    }
+	queryEvent := `
+		INSERT INTO events (name, location, date, capacity, created_at)
+		VALUES ($1, $2, $3, $4, NOW())
+		RETURNING event_id, created_at
+	`
+	err = tx.QueryRow(ctx, queryEvent, event.Name, event.Location, event.Date, event.Capacity).Scan(&event.ID, &event.CreatedAt)
+	if err != nil {
+		logger.Error("failed to insert event", logger.Err(err))
+		return err
+	}
+
+	querySeat := `INSERT INTO seats (event_id, seat_number, is_booked) VALUES ($1, $2, False)`
+
+	for i := 1; i <= event.Capacity; i++ {
+		seatNum := fmt.Sprintf("%d-%d", event.ID, i)
+		_, err := tx.Exec(ctx, querySeat, event.ID, seatNum)
+		if err != nil {
+			logger.Error("failed to create seat",
+				logger.Int64("event_id", event.ID),
+				logger.Int("seat_number", i),
+				logger.Err(err),
+			)
+			return err
+		}
+	}
 
 	r.redis.Del(ctx, eventsCacheKey)
 
-    // 4. Commit Transaksi (Simpan Permanen)
-    return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		logger.Error("failed to commit transaction", logger.Err(err))
+		return err
+	}
+
+	logger.Info("event created successfully",
+		logger.Int64("event_id", event.ID),
+		logger.String("name", event.Name),
+		logger.Int("capacity", event.Capacity),
+	)
+	return nil
 }
 
-func (r *eventRepository) GetAllEvents(ctx context.Context) ([]entity.Event, error){
+func (r *eventRepository) GetAllEvents(ctx context.Context) ([]entity.Event, error) {
+	logger.Debug("fetching all events")
 
 	cachedData, err := r.redis.Get(ctx, eventsCacheKey).Result()
 	if err == nil {
 		var events []entity.Event
-		if  err:= json.Unmarshal([]byte(cachedData), &events); err == nil {
+		if err := json.Unmarshal([]byte(cachedData), &events); err == nil {
+			logger.Debug("events fetched from cache", logger.Int("count", len(events)))
 			return events, nil
 		}
 	}
@@ -85,42 +106,44 @@ func (r *eventRepository) GetAllEvents(ctx context.Context) ([]entity.Event, err
 
 	rows, err := r.db.Query(ctx, query)
 	if err != nil {
-		return nil , err
+		logger.Error("failed to query events", logger.Err(err))
+		return nil, err
 	}
 	defer rows.Close()
 
 	var events []entity.Event
-
-	// scan setiap row, jadikan entity Event lalu masukan array
-	for rows.Next(){
+	for rows.Next() {
 		var evt entity.Event
-
 		err := rows.Scan(&evt.ID, &evt.Name, &evt.Location, &evt.Date, &evt.Capacity, &evt.CreatedAt)
 		if err != nil {
+			logger.Error("failed to scan event row", logger.Err(err))
 			return nil, err
 		}
-		events = append(events,evt)
+		events = append(events, evt)
 	}
 
 	if data, err := json.Marshal(events); err == nil {
-		r.redis.Set(ctx , eventsCacheKey, data, 10*time.Minute)
+		r.redis.Set(ctx, eventsCacheKey, data, 10*time.Minute)
+		logger.Debug("events cached", logger.Int("count", len(events)))
 	}
 
-	return events, nil 
+	logger.Debug("events fetched from database", logger.Int("count", len(events)))
+	return events, nil
 }
 
 func (r *eventRepository) GetEventByID(ctx context.Context, eventID int64) (*entity.Event, error) {
-	// format unutk cacheKey
+	logger.Debug("fetching event by ID", logger.Int64("event_id", eventID))
+
 	key := fmt.Sprintf("events:detail:%d", eventID)
 	var event entity.Event
 	cachedData, err := r.redis.Get(ctx, key).Result()
 	if err == nil {
-		if  err:= json.Unmarshal([]byte(cachedData), &event); err == nil {
+		if err := json.Unmarshal([]byte(cachedData), &event); err == nil {
+			logger.Debug("event fetched from cache", logger.Int64("event_id", eventID))
 			return &event, nil
 		}
 	}
 
-	
 	query := `SELECT event_id ,name, location, date, capacity, created_at FROM events WHERE event_id=$1`
 
 	err = r.db.QueryRow(ctx, query, eventID).Scan(
@@ -133,70 +156,110 @@ func (r *eventRepository) GetEventByID(ctx context.Context, eventID int64) (*ent
 	)
 
 	if err != nil {
+		logger.Warn("event not found", logger.Int64("event_id", eventID), logger.Err(err))
 		return nil, err
 	}
 
+	logger.Debug("event fetched from database", logger.Int64("event_id", eventID))
 	return &event, nil
-
 }
 
-func (r *eventRepository) UpdateEvent(ctx context.Context, event *entity.Event, prevCapacity int64) error{
-	// memulai transaksi
+func (r *eventRepository) UpdateEvent(ctx context.Context, event *entity.Event, prevCapacity int64) error {
+	logger.Debug("updating event",
+		logger.Int64("event_id", event.ID),
+		logger.String("name", event.Name),
+		logger.Int64("prev_capacity", prevCapacity),
+		logger.Int("new_capacity", event.Capacity),
+	)
+
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
+		logger.Error("failed to begin transaction", logger.Err(err))
 		return err
 	}
-	// rollback jika commit tidak terjadi
 	defer tx.Rollback(ctx)
 
-	//
 	queryEvent := `
 		UPDATE events
-		SET name = $1, location = $2, date = $3, capacity = $4, updated_at = $5 
+		SET name = $1, location = $2, date = $3, capacity = $4, updated_at = $5
 		WHERE event_id = $6
 	`
 
-	_ ,err = tx.Exec(ctx, queryEvent, event.Name, event.Location,event.Date, event.Capacity, event.UpdatedAt, event.ID)
+	_, err = tx.Exec(ctx, queryEvent, event.Name, event.Location, event.Date, event.Capacity, event.UpdatedAt, event.ID)
+	if err != nil {
+		logger.Error("failed to update event", logger.Int64("event_id", event.ID), logger.Err(err))
+		return err
+	}
 
-	querySeats :=
-	`
-		INSERT INTO seats (event_id, seat_number, is_booked) VALUES ($1, $2, False)
-	`
+	querySeats := `INSERT INTO seats (event_id, seat_number, is_booked) VALUES ($1, $2, False)`
 
-	for i := prevCapacity + 1; i <= int64(event.Capacity); i++{
-		seatNum := fmt.Sprintf("%d-%d",event.ID , i)
+	for i := prevCapacity + 1; i <= int64(event.Capacity); i++ {
+		seatNum := fmt.Sprintf("%d-%d", event.ID, i)
 		_, err = tx.Exec(ctx, querySeats, event.ID, seatNum)
-		if err != nil{
+		if err != nil {
+			logger.Error("failed to create new seat",
+				logger.Int64("event_id", event.ID),
+				logger.Int64("seat_number", i),
+				logger.Err(err),
+			)
 			return err
 		}
 	}
 
 	r.redis.Del(ctx, "events:list_all")
 
-	return tx.Commit(ctx);
+	if err := tx.Commit(ctx); err != nil {
+		logger.Error("failed to commit transaction", logger.Err(err))
+		return err
+	}
+
+	logger.Info("event updated successfully", logger.Int64("event_id", event.ID))
+	return nil
 }
 
 func (r *eventRepository) UpdateEventStatus(ctx context.Context, eventID int64, status string) error {
+	logger.Debug("updating event status",
+		logger.Int64("event_id", eventID),
+		logger.String("status", status),
+	)
+
 	query := `UPDATE events SET status = $1, updated_at = NOW() WHERE event_id = $2`
 	_, err := r.db.Exec(ctx, query, status, eventID)
+	if err != nil {
+		logger.Error("failed to update event status",
+			logger.Int64("event_id", eventID),
+			logger.String("status", status),
+			logger.Err(err),
+		)
+		return err
+	}
 
 	r.redis.Del(ctx, "events:list_all")
 
-	return err
+	logger.Info("event status updated",
+		logger.Int64("event_id", eventID),
+		logger.String("status", status),
+	)
+	return nil
 }
 
 func (r *eventRepository) GetEventsWithSearch(ctx context.Context, search string, page, limit int) ([]entity.Event, int, error) {
-	// Count total
+	logger.Debug("searching events",
+		logger.String("search", search),
+		logger.Int("page", page),
+		logger.Int("limit", limit),
+	)
+
 	countQuery := `SELECT COUNT(*) FROM events WHERE name ILIKE $1`
 	searchPattern := "%" + search + "%"
 
 	var total int
 	err := r.db.QueryRow(ctx, countQuery, searchPattern).Scan(&total)
 	if err != nil {
+		logger.Error("failed to count events", logger.Err(err))
 		return nil, 0, err
 	}
 
-	// Get paginated data
 	offset := (page - 1) * limit
 	query := `
 		SELECT event_id, name, location, date, capacity, COALESCE(status, 'available') as status, created_at, COALESCE(updated_at, created_at) as updated_at
@@ -208,6 +271,7 @@ func (r *eventRepository) GetEventsWithSearch(ctx context.Context, search string
 
 	rows, err := r.db.Query(ctx, query, searchPattern, limit, offset)
 	if err != nil {
+		logger.Error("failed to query events with search", logger.Err(err))
 		return nil, 0, err
 	}
 	defer rows.Close()
@@ -218,27 +282,37 @@ func (r *eventRepository) GetEventsWithSearch(ctx context.Context, search string
 		var status string
 		err := rows.Scan(&evt.ID, &evt.Name, &evt.Location, &evt.Date, &evt.Capacity, &status, &evt.CreatedAt, &evt.UpdatedAt)
 		if err != nil {
+			logger.Error("failed to scan event row", logger.Err(err))
 			return nil, 0, err
 		}
 		events = append(events, evt)
 	}
 
+	logger.Debug("events search completed",
+		logger.String("search", search),
+		logger.Int("total", total),
+		logger.Int("returned", len(events)),
+	)
 	return events, total, nil
 }
 
 func (r *eventRepository) GetEventWithSeats(ctx context.Context, eventID int64) (*entity.EventWithSeats, error) {
-	// Get event
+	logger.Debug("fetching event with seats", logger.Int64("event_id", eventID))
+
 	event, err := r.GetEventByID(ctx, eventID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Get seats
 	seats, err := r.GetSeatsByEventID(ctx, eventID)
 	if err != nil {
 		return nil, err
 	}
 
+	logger.Debug("event with seats fetched",
+		logger.Int64("event_id", eventID),
+		logger.Int("seat_count", len(seats)),
+	)
 	return &entity.EventWithSeats{
 		Event: *event,
 		Seats: seats,
@@ -246,6 +320,8 @@ func (r *eventRepository) GetEventWithSeats(ctx context.Context, eventID int64) 
 }
 
 func (r *eventRepository) GetSeatsByEventID(ctx context.Context, eventID int64) ([]entity.Seat, error) {
+	logger.Debug("fetching seats by event ID", logger.Int64("event_id", eventID))
+
 	query := `
 		SELECT seat_id, event_id, seat_number, is_booked
 		FROM seats
@@ -255,6 +331,7 @@ func (r *eventRepository) GetSeatsByEventID(ctx context.Context, eventID int64) 
 
 	rows, err := r.db.Query(ctx, query, eventID)
 	if err != nil {
+		logger.Error("failed to query seats", logger.Int64("event_id", eventID), logger.Err(err))
 		return nil, err
 	}
 	defer rows.Close()
@@ -264,10 +341,12 @@ func (r *eventRepository) GetSeatsByEventID(ctx context.Context, eventID int64) 
 		var seat entity.Seat
 		err := rows.Scan(&seat.ID, &seat.EventID, &seat.SeatNumber, &seat.IsBooked)
 		if err != nil {
+			logger.Error("failed to scan seat row", logger.Err(err))
 			return nil, err
 		}
 		seats = append(seats, seat)
 	}
 
+	logger.Debug("seats fetched", logger.Int64("event_id", eventID), logger.Int("count", len(seats)))
 	return seats, nil
 }
