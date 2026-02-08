@@ -60,3 +60,6 @@ build:
 clean:
 	go clean
 	rm -f bin/api
+
+swagger:
+	swag init -g cmd/api/main.go -o docs

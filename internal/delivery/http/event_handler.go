@@ -28,6 +28,19 @@ type createEventRequest struct {
 	TicketPrice float64 `json:"ticket_price" binding:"required,min=0"`
 }
 
+// Create godoc
+// @Summary      Create a new event
+// @Description  Create a new event with details and ticket price. Authenticated user required.
+// @Tags         events
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        request body createEventRequest true "Event creation details"
+// @Success      201 {object} entity.Event "Event created successfully"
+// @Failure      400 {object} map[string]string "Invalid request body or date format"
+// @Failure      401 {object} map[string]string "User not authenticated"
+// @Failure      500 {object} map[string]string "Internal server error"
+// @Router       /events [post]
 func (h *EventHandler) Create(c *gin.Context) {
 	logger.Debug("handler: create event request received")
 
@@ -62,6 +75,18 @@ func (h *EventHandler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, event)
 }
 
+// List godoc
+// @Summary      List events
+// @Description  Retrieve a paginated list of events with optional search filter
+// @Tags         events
+// @Accept       json
+// @Produce      json
+// @Param        search query string false "Search by event name or location"
+// @Param        page query int false "Page number" default(1) minimum(1)
+// @Param        limit query int false "Items per page (max 100)" default(10) minimum(1) maximum(100)
+// @Success      200 {object} map[string]interface{} "List of events with pagination metadata"
+// @Failure      500 {object} map[string]string "Internal server error"
+// @Router       /events [get]
 func (h *EventHandler) List(c *gin.Context) {
 	search := c.Query("search")
 	pageStr := c.DefaultQuery("page", "1")
@@ -104,6 +129,18 @@ func (h *EventHandler) List(c *gin.Context) {
 	})
 }
 
+// GetByID godoc
+// @Summary      Get event by ID
+// @Description  Retrieve detailed information about a specific event including available seats
+// @Tags         events
+// @Accept       json
+// @Produce      json
+// @Param        id path int true "Event ID" example(1)
+// @Success      200 {object} map[string]interface{} "Event details with seats information"
+// @Failure      400 {object} map[string]string "Invalid event ID"
+// @Failure      404 {object} map[string]string "Event not found"
+// @Failure      500 {object} map[string]string "Internal server error"
+// @Router       /events/{id} [get]
 func (h *EventHandler) GetByID(c *gin.Context) {
 	idParam := c.Param("id")
 	eventID, err := strconv.ParseInt(idParam, 10, 64)
@@ -132,6 +169,22 @@ type updateEventRequest struct {
 	Capacity int    `json:"capacity" binding:"required,min=1"`
 }
 
+// Update godoc
+// @Summary      Update an event
+// @Description  Update event details. Admin access required. Capacity changes will create/delete seats accordingly.
+// @Tags         events
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id path int true "Event ID" example(1)
+// @Param        request body updateEventRequest true "Event update details"
+// @Success      200 {object} map[string]interface{} "Event updated successfully"
+// @Failure      400 {object} map[string]string "Invalid request or date format"
+// @Failure      401 {object} map[string]string "User not authenticated"
+// @Failure      403 {object} map[string]string "Access forbidden - admin only"
+// @Failure      404 {object} map[string]string "Event not found"
+// @Failure      500 {object} map[string]string "Internal server error"
+// @Router       /events/{id} [put]
 func (h *EventHandler) Update(c *gin.Context) {
 	idParam := c.Param("id")
 	eventID, err := strconv.ParseInt(idParam, 10, 64)
@@ -186,6 +239,20 @@ func (h *EventHandler) Update(c *gin.Context) {
 	})
 }
 
+// Delete godoc
+// @Summary      Cancel an event
+// @Description  Cancel an event and start automatic refund process for all bookings. Admin access required.
+// @Tags         events
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id path int true "Event ID" example(1)
+// @Success      200 {object} map[string]string "Event cancelled successfully, refund process started"
+// @Failure      400 {object} map[string]string "Invalid event ID"
+// @Failure      401 {object} map[string]string "User not authenticated"
+// @Failure      403 {object} map[string]string "Access forbidden - admin only"
+// @Failure      500 {object} map[string]string "Internal server error"
+// @Router       /events/{id} [delete]
 func (h *EventHandler) Delete(c *gin.Context) {
 	idParam := c.Param("id")
 	eventID, err := strconv.ParseInt(idParam, 10, 64)

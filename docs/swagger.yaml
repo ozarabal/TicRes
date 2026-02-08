@@ -1,0 +1,827 @@
+basePath: /api/v1
+definitions:
+  entity.Event:
+    properties:
+      capacity:
+        type: integer
+      created_at:
+        type: string
+      date:
+        type: string
+      event_id:
+        type: integer
+      location:
+        type: string
+      name:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  http.bookRequest:
+    properties:
+      event_id:
+        type: integer
+      seat_ids:
+        items:
+          type: integer
+        minItems: 1
+        type: array
+    required:
+    - event_id
+    - seat_ids
+    type: object
+  http.createEventRequest:
+    properties:
+      capacity:
+        minimum: 1
+        type: integer
+      date:
+        type: string
+      location:
+        type: string
+      name:
+        type: string
+      ticket_price:
+        minimum: 0
+        type: number
+    required:
+    - capacity
+    - date
+    - location
+    - name
+    - ticket_price
+    type: object
+  http.loginRequest:
+    properties:
+      email:
+        type: string
+      password:
+        type: string
+    required:
+    - email
+    - password
+    type: object
+  http.payRequest:
+    properties:
+      booking_id:
+        type: integer
+      payment_method:
+        enum:
+        - credit_card
+        - bank_transfer
+        - e_wallet
+        type: string
+    required:
+    - booking_id
+    - payment_method
+    type: object
+  http.registerRequest:
+    properties:
+      email:
+        type: string
+      name:
+        type: string
+      password:
+        minLength: 6
+        type: string
+    required:
+    - email
+    - name
+    - password
+    type: object
+  http.updateEventRequest:
+    properties:
+      capacity:
+        minimum: 1
+        type: integer
+      date:
+        type: string
+      location:
+        type: string
+      name:
+        type: string
+    required:
+    - capacity
+    - date
+    - location
+    - name
+    type: object
+host: localhost:8080
+info:
+  contact:
+    email: support@ticres.com
+    name: Ticres API Support
+    url: https://github.com/yourusername/ticres
+  description: Event Ticketing and Reservation System API
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  termsOfService: http://swagger.io/terms/
+  title: Ticres API
+  version: "1.0"
+paths:
+  /admin/bookings:
+    get:
+      consumes:
+      - application/json
+      description: Retrieve a paginated list of all bookings across all events with
+        filtering and sorting options. Admin access required.
+      parameters:
+      - description: Filter by booking status (e.g., pending, confirmed, cancelled,
+          expired)
+        in: query
+        name: status
+        type: string
+      - default: created_at
+        description: Sort field
+        enum:
+        - created_at
+        - updated_at
+        - total_price
+        in: query
+        name: sort
+        type: string
+      - default: desc
+        description: Sort order
+        enum:
+        - asc
+        - desc
+        in: query
+        name: order
+        type: string
+      - default: 1
+        description: Page number
+        in: query
+        minimum: 1
+        name: page
+        type: integer
+      - default: 20
+        description: Items per page (max 100)
+        in: query
+        maximum: 100
+        minimum: 1
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of all bookings with pagination metadata
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: User not authenticated
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Access forbidden - admin only
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get all bookings (Admin)
+      tags:
+      - admin
+  /admin/events/{id}/bookings:
+    get:
+      consumes:
+      - application/json
+      description: Retrieve all bookings for a specific event with filtering and sorting
+        options. Admin access required.
+      parameters:
+      - description: Event ID
+        example: 1
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Filter by booking status (e.g., pending, confirmed, cancelled,
+          expired)
+        in: query
+        name: status
+        type: string
+      - default: created_at
+        description: Sort field
+        enum:
+        - created_at
+        - updated_at
+        - total_price
+        in: query
+        name: sort
+        type: string
+      - default: desc
+        description: Sort order
+        enum:
+        - asc
+        - desc
+        in: query
+        name: order
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of bookings for the event
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid event ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: User not authenticated
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Access forbidden - admin only
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get bookings for specific event (Admin)
+      tags:
+      - admin
+  /bookings:
+    post:
+      consumes:
+      - application/json
+      description: Create a booking for event seats. User must be authenticated. Payment
+        must be completed within 15 minutes.
+      parameters:
+      - description: Booking details with event ID and seat IDs
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/http.bookRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Booking created successfully with payment deadline
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid request body
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: User not authenticated
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: One or more seats are not available or already booked
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create a new booking
+      tags:
+      - bookings
+  /events:
+    get:
+      consumes:
+      - application/json
+      description: Retrieve a paginated list of events with optional search filter
+      parameters:
+      - description: Search by event name or location
+        in: query
+        name: search
+        type: string
+      - default: 1
+        description: Page number
+        in: query
+        minimum: 1
+        name: page
+        type: integer
+      - default: 10
+        description: Items per page (max 100)
+        in: query
+        maximum: 100
+        minimum: 1
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of events with pagination metadata
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List events
+      tags:
+      - events
+    post:
+      consumes:
+      - application/json
+      description: Create a new event with details and ticket price. Authenticated
+        user required.
+      parameters:
+      - description: Event creation details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/http.createEventRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Event created successfully
+          schema:
+            $ref: '#/definitions/entity.Event'
+        "400":
+          description: Invalid request body or date format
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: User not authenticated
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create a new event
+      tags:
+      - events
+  /events/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: Cancel an event and start automatic refund process for all bookings.
+        Admin access required.
+      parameters:
+      - description: Event ID
+        example: 1
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Event cancelled successfully, refund process started
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid event ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: User not authenticated
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Access forbidden - admin only
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Cancel an event
+      tags:
+      - events
+    get:
+      consumes:
+      - application/json
+      description: Retrieve detailed information about a specific event including
+        available seats
+      parameters:
+      - description: Event ID
+        example: 1
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Event details with seats information
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid event ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Event not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get event by ID
+      tags:
+      - events
+    put:
+      consumes:
+      - application/json
+      description: Update event details. Admin access required. Capacity changes will
+        create/delete seats accordingly.
+      parameters:
+      - description: Event ID
+        example: 1
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Event update details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/http.updateEventRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Event updated successfully
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid request or date format
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: User not authenticated
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Access forbidden - admin only
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Event not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update an event
+      tags:
+      - events
+  /login:
+    post:
+      consumes:
+      - application/json
+      description: Authenticate user and return JWT token
+      parameters:
+      - description: User login credentials
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/http.loginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Login successful, JWT token returned
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid request body
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Invalid email or password
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: User login
+      tags:
+      - users
+  /me:
+    get:
+      consumes:
+      - application/json
+      description: Get the profile of the currently authenticated user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: User profile retrieved successfully
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: User not authenticated
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to get user profile
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get current user profile
+      tags:
+      - users
+  /me/bookings:
+    get:
+      consumes:
+      - application/json
+      description: Retrieve all bookings made by the currently authenticated user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: User bookings retrieved successfully
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: User not authenticated
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to get user bookings
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get current user's bookings
+      tags:
+      - users
+  /payments:
+    post:
+      consumes:
+      - application/json
+      description: Process payment for a booking. User must own the booking. Payment
+        must be completed within the booking's expiration time (15 minutes from booking
+        creation).
+      parameters:
+      - description: Payment processing details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/http.payRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Payment processed successfully
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid request, booking not in payable state, or invalid payment
+            method
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: User not authenticated
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Access forbidden - booking belongs to another user
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Booking not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Payment has already been completed for this booking
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "410":
+          description: Booking has expired - create new booking
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Payment processing failed
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Process payment for booking
+      tags:
+      - payments
+  /payments/{booking_id}:
+    get:
+      consumes:
+      - application/json
+      description: Retrieve the current payment status and details for a booking.
+        User must own the booking.
+      parameters:
+      - description: Booking ID
+        example: 123
+        in: path
+        name: booking_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Payment status retrieved successfully
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid booking ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: User not authenticated
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Access forbidden - booking belongs to another user
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Booking not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to get payment status
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get payment status for booking
+      tags:
+      - payments
+  /register:
+    post:
+      consumes:
+      - application/json
+      description: Register a new user account with name, email and password
+      parameters:
+      - description: User registration details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/http.registerRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: User registered successfully
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid request body
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Email already registered
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Register a new user
+      tags:
+      - users
+securityDefinitions:
+  BearerAuth:
+    description: Type "Bearer" followed by a space and JWT token.
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

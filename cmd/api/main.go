@@ -18,7 +18,31 @@ import (
 	"ticres/pkg/logger"
 
 	"github.com/gin-gonic/gin"
+
+	swaggerFiles "github.com/swaggo/files"
+    ginSwagger "github.com/swaggo/gin-swagger"
+    _ "ticres/docs"
 )
+
+// @title           Ticres API
+// @version         1.0
+// @description     Event Ticketing and Reservation System API
+// @termsOfService  http://swagger.io/terms/
+
+// @contact.name   Ticres API Support
+// @contact.url    https://github.com/yourusername/ticres
+// @contact.email  support@ticres.com
+
+// @license.name  MIT
+// @license.url   https://opensource.org/licenses/MIT
+
+// @host      localhost:8080
+// @BasePath  /api/v1
+
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+// @description Type "Bearer" followed by a space and JWT token.
 
 func main() {
 	// 0. Initialize Logger
@@ -96,6 +120,9 @@ func main() {
 		}
 		c.Next()
 	})
+
+	// Swagger route
+	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	v1 := r.Group("/api/v1")
 	{

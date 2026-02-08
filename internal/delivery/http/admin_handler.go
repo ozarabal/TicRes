@@ -18,6 +18,23 @@ func NewAdminHandler(bookingUsecase usecase.BookingUsecase) *AdminHandler {
 	return &AdminHandler{bookingUsecase: bookingUsecase}
 }
 
+// GetAllBookings godoc
+// @Summary      Get all bookings (Admin)
+// @Description  Retrieve a paginated list of all bookings across all events with filtering and sorting options. Admin access required.
+// @Tags         admin
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        status query string false "Filter by booking status (e.g., pending, confirmed, cancelled, expired)"
+// @Param        sort query string false "Sort field" default(created_at) Enums(created_at, updated_at, total_price)
+// @Param        order query string false "Sort order" default(desc) Enums(asc, desc)
+// @Param        page query int false "Page number" default(1) minimum(1)
+// @Param        limit query int false "Items per page (max 100)" default(20) minimum(1) maximum(100)
+// @Success      200 {object} map[string]interface{} "List of all bookings with pagination metadata"
+// @Failure      401 {object} map[string]string "User not authenticated"
+// @Failure      403 {object} map[string]string "Access forbidden - admin only"
+// @Failure      500 {object} map[string]string "Internal server error"
+// @Router       /admin/bookings [get]
 func (h *AdminHandler) GetAllBookings(c *gin.Context) {
 	status := c.Query("status")
 	sortBy := c.DefaultQuery("sort", "created_at")
@@ -62,6 +79,23 @@ func (h *AdminHandler) GetAllBookings(c *gin.Context) {
 	})
 }
 
+// GetEventBookings godoc
+// @Summary      Get bookings for specific event (Admin)
+// @Description  Retrieve all bookings for a specific event with filtering and sorting options. Admin access required.
+// @Tags         admin
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id path int true "Event ID" example(1)
+// @Param        status query string false "Filter by booking status (e.g., pending, confirmed, cancelled, expired)"
+// @Param        sort query string false "Sort field" default(created_at) Enums(created_at, updated_at, total_price)
+// @Param        order query string false "Sort order" default(desc) Enums(asc, desc)
+// @Success      200 {object} map[string]interface{} "List of bookings for the event"
+// @Failure      400 {object} map[string]string "Invalid event ID"
+// @Failure      401 {object} map[string]string "User not authenticated"
+// @Failure      403 {object} map[string]string "Access forbidden - admin only"
+// @Failure      500 {object} map[string]string "Internal server error"
+// @Router       /admin/events/{id}/bookings [get]
 func (h *AdminHandler) GetEventBookings(c *gin.Context) {
 	idParam := c.Param("id")
 	eventID, err := strconv.ParseInt(idParam, 10, 64)

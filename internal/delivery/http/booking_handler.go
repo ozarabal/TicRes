@@ -22,6 +22,20 @@ type bookRequest struct {
 	SeatIDs []int64 `json:"seat_ids" binding:"required,min=1"`
 }
 
+// Create godoc
+// @Summary      Create a new booking
+// @Description  Create a booking for event seats. User must be authenticated. Payment must be completed within 15 minutes.
+// @Tags         bookings
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        request body bookRequest true "Booking details with event ID and seat IDs"
+// @Success      201 {object} map[string]interface{} "Booking created successfully with payment deadline"
+// @Failure      400 {object} map[string]string "Invalid request body"
+// @Failure      401 {object} map[string]string "User not authenticated"
+// @Failure      409 {object} map[string]string "One or more seats are not available or already booked"
+// @Failure      500 {object} map[string]string "Internal server error"
+// @Router       /bookings [post]
 func (h *BookingHandler) Create(c *gin.Context) {
 	userIDFloat, exists := c.Get("userID")
 	if !exists {

@@ -25,6 +25,23 @@ type payRequest struct {
 	PaymentMethod string `json:"payment_method" binding:"required,oneof=credit_card bank_transfer e_wallet"`
 }
 
+// ProcessPayment godoc
+// @Summary      Process payment for booking
+// @Description  Process payment for a booking. User must own the booking. Payment must be completed within the booking's expiration time (15 minutes from booking creation).
+// @Tags         payments
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        request body payRequest true "Payment processing details"
+// @Success      200 {object} map[string]interface{} "Payment processed successfully"
+// @Failure      400 {object} map[string]string "Invalid request, booking not in payable state, or invalid payment method"
+// @Failure      401 {object} map[string]string "User not authenticated"
+// @Failure      403 {object} map[string]string "Access forbidden - booking belongs to another user"
+// @Failure      404 {object} map[string]string "Booking not found"
+// @Failure      409 {object} map[string]string "Payment has already been completed for this booking"
+// @Failure      410 {object} map[string]string "Booking has expired - create new booking"
+// @Failure      500 {object} map[string]string "Payment processing failed"
+// @Router       /payments [post]
 func (h *PaymentHandler) ProcessPayment(c *gin.Context) {
 	userIDFloat, exists := c.Get("userID")
 	if !exists {
@@ -78,6 +95,21 @@ func (h *PaymentHandler) ProcessPayment(c *gin.Context) {
 	})
 }
 
+// GetPaymentStatus godoc
+// @Summary      Get payment status for booking
+// @Description  Retrieve the current payment status and details for a booking. User must own the booking.
+// @Tags         payments
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        booking_id path int true "Booking ID" example(123)
+// @Success      200 {object} map[string]interface{} "Payment status retrieved successfully"
+// @Failure      400 {object} map[string]string "Invalid booking ID"
+// @Failure      401 {object} map[string]string "User not authenticated"
+// @Failure      403 {object} map[string]string "Access forbidden - booking belongs to another user"
+// @Failure      404 {object} map[string]string "Booking not found"
+// @Failure      500 {object} map[string]string "Failed to get payment status"
+// @Router       /payments/{booking_id} [get]
 func (h *PaymentHandler) GetPaymentStatus(c *gin.Context) {
 	userIDFloat, exists := c.Get("userID")
 	if !exists {

@@ -28,6 +28,29 @@ type registerRequest struct {
 	Password string `json:"password" binding:"required,min=6"`
 }
 
+// errorResponse represents an error response
+type errorResponse struct {
+	Error string `json:"error" example:"Invalid request"`
+}
+
+// successResponse represents a success response
+type successResponse struct {
+	Message string      `json:"message" example:"Success"`
+	Data    interface{} `json:"data,omitempty"`
+}
+
+// Register godoc
+// @Summary      Register a new user
+// @Description  Register a new user account with name, email and password
+// @Tags         users
+// @Accept       json
+// @Produce      json
+// @Param        request body registerRequest true "User registration details"
+// @Success      201 {object} map[string]interface{} "User registered successfully"
+// @Failure      400 {object} map[string]string "Invalid request body"
+// @Failure      409 {object} map[string]string "Email already registered"
+// @Failure      500 {object} map[string]string "Internal server error"
+// @Router       /register [post]
 func (h *UserHandler) Register(c *gin.Context) {
 	logger.Debug("handler: register request received")
 
@@ -75,6 +98,18 @@ type loginRequest struct {
 	Password string `json:"password" binding:"required"`
 }
 
+// Login godoc
+// @Summary      User login
+// @Description  Authenticate user and return JWT token
+// @Tags         users
+// @Accept       json
+// @Produce      json
+// @Param        request body loginRequest true "User login credentials"
+// @Success      200 {object} map[string]interface{} "Login successful, JWT token returned"
+// @Failure      400 {object} map[string]string "Invalid request body"
+// @Failure      401 {object} map[string]string "Invalid email or password"
+// @Failure      500 {object} map[string]string "Internal server error"
+// @Router       /login [post]
 func (h *UserHandler) Login(c *gin.Context) {
 	logger.Debug("handler: login request received")
 
@@ -103,6 +138,17 @@ func (h *UserHandler) Login(c *gin.Context) {
 	})
 }
 
+// Me godoc
+// @Summary      Get current user profile
+// @Description  Get the profile of the currently authenticated user
+// @Tags         users
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200 {object} map[string]interface{} "User profile retrieved successfully"
+// @Failure      401 {object} map[string]string "User not authenticated"
+// @Failure      500 {object} map[string]string "Failed to get user profile"
+// @Router       /me [get]
 func (h *UserHandler) Me(c *gin.Context) {
 	userID, exists := c.Get("userID")
 	if !exists {
@@ -126,6 +172,17 @@ func (h *UserHandler) Me(c *gin.Context) {
 	})
 }
 
+// GetMyBookings godoc
+// @Summary      Get current user's bookings
+// @Description  Retrieve all bookings made by the currently authenticated user
+// @Tags         users
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200 {object} map[string]interface{} "User bookings retrieved successfully"
+// @Failure      401 {object} map[string]string "User not authenticated"
+// @Failure      500 {object} map[string]string "Failed to get user bookings"
+// @Router       /me/bookings [get]
 func (h *UserHandler) GetMyBookings(c *gin.Context) {
 	userID, exists := c.Get("userID")
 	if !exists {
