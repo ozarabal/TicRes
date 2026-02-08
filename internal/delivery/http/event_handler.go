@@ -21,10 +21,11 @@ func NewEventHandler(u usecase.EventUsecase) *EventHandler {
 }
 
 type createEventRequest struct {
-	Name     string `json:"name" binding:"required"`
-	Location string `json:"location" binding:"required"`
-	Date     string `json:"date" binding:"required"`
-	Capacity int    `json:"capacity" binding:"required,min=1"`
+	Name        string  `json:"name" binding:"required"`
+	Location    string  `json:"location" binding:"required"`
+	Date        string  `json:"date" binding:"required"`
+	Capacity    int     `json:"capacity" binding:"required,min=1"`
+	TicketPrice float64 `json:"ticket_price" binding:"required,min=0"`
 }
 
 func (h *EventHandler) Create(c *gin.Context) {
@@ -51,7 +52,7 @@ func (h *EventHandler) Create(c *gin.Context) {
 		Capacity: req.Capacity,
 	}
 
-	if err := h.eventUsecase.CreateEvent(c.Request.Context(), event); err != nil {
+	if err := h.eventUsecase.CreateEvent(c.Request.Context(), event, req.TicketPrice); err != nil {
 		logger.Error("handler: failed to create event", logger.Err(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

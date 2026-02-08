@@ -12,8 +12,8 @@ type MockEventRepo struct {
 	mock.Mock
 }
 
-func (m *MockEventRepo) CreateEvent(ctx context.Context, event *entity.Event) error {
-	args := m.Called(ctx, event)
+func (m *MockEventRepo) CreateEvent(ctx context.Context, event *entity.Event, ticketPrice float64) error {
+	args := m.Called(ctx, event, ticketPrice)
 	return args.Error(0)
 }
 

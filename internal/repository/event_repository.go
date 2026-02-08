@@ -14,7 +14,7 @@ import (
 )
 
 type EventRepository interface {
-	CreateEvent(ctx context.Context, event *entity.Event) error
+	CreateEvent(ctx context.Context, event *entity.Event, ticketPrice float64) error
 	GetAllEvents(ctx context.Context) ([]entity.Event, error)
 	GetEventsWithSearch(ctx context.Context, search string, page, limit int) ([]entity.Event, int, error)
 	GetEventByID(ctx context.Context, eventID int64) (*entity.Event, error)
@@ -35,7 +35,7 @@ func NewEventRepository(db *pgxpool.Pool, rdb *redis.Client) EventRepository {
 
 const eventsCacheKey = "events:list_all"
 
-func (r *eventRepository) CreateEvent(ctx context.Context, event *entity.Event) error {
+func (r *eventRepository) CreateEvent(ctx context.Context, event *entity.Event, ticketPrice float64) error {
 	logger.Debug("creating event",
 		logger.String("name", event.Name),
 		logger.String("location", event.Location),
@@ -60,11 +60,11 @@ func (r *eventRepository) CreateEvent(ctx context.Context, event *entity.Event) 
 		return err
 	}
 
-	querySeat := `INSERT INTO seats (event_id, seat_number, is_booked) VALUES ($1, $2, False)`
+	querySeat := `INSERT INTO seats (event_id, seat_number, price, is_booked) VALUES ($1, $2, $3, False)`
 
 	for i := 1; i <= event.Capacity; i++ {
 		seatNum := fmt.Sprintf("%d-%d", event.ID, i)
-		_, err := tx.Exec(ctx, querySeat, event.ID, seatNum)
+		_, err := tx.Exec(ctx, querySeat, event.ID, seatNum, ticketPrice)
 		if err != nil {
 			logger.Error("failed to create seat",
 				logger.Int64("event_id", event.ID),
@@ -323,7 +323,7 @@ func (r *eventRepository) GetSeatsByEventID(ctx context.Context, eventID int64) 
 	logger.Debug("fetching seats by event ID", logger.Int64("event_id", eventID))
 
 	query := `
-		SELECT seat_id, event_id, seat_number, is_booked
+		SELECT seat_id, event_id, seat_number, COALESCE(category, ''), COALESCE(price, 0), is_booked
 		FROM seats
 		WHERE event_id = $1
 		ORDER BY seat_id
@@ -339,7 +339,7 @@ func (r *eventRepository) GetSeatsByEventID(ctx context.Context, eventID int64) 
 	var seats []entity.Seat
 	for rows.Next() {
 		var seat entity.Seat
-		err := rows.Scan(&seat.ID, &seat.EventID, &seat.SeatNumber, &seat.IsBooked)
+		err := rows.Scan(&seat.ID, &seat.EventID, &seat.SeatNumber, &seat.Category, &seat.Price, &seat.IsBooked)
 		if err != nil {
 			logger.Error("failed to scan seat row", logger.Err(err))
 			return nil, err

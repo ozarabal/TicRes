@@ -31,7 +31,13 @@ func (h *BookingHandler) Create(c *gin.Context) {
 	}
 
 	userID := int64(userIDFloat.(float64))
-	userEmail := "customer@example.com"
+
+	// Get email from context (set by auth middleware)
+	userEmail, _ := c.Get("userEmail")
+	email, ok := userEmail.(string)
+	if !ok || email == "" {
+		email = "customer@example.com"
+	}
 
 	logger.Debug("handler: booking request received", logger.Int64("user_id", userID))
 
@@ -48,7 +54,7 @@ func (h *BookingHandler) Create(c *gin.Context) {
 		logger.Int("seat_count", len(req.SeatIDs)),
 	)
 
-	err := h.bookingUC.BookSeats(c.Request.Context(), userID, req.EventID, req.SeatIDs, userEmail)
+	result, err := h.bookingUC.BookSeats(c.Request.Context(), userID, req.EventID, req.SeatIDs, email)
 	if err != nil {
 		if err.Error() == "seat not available or already booked" {
 			logger.Warn("handler: booking failed - seat not available",
@@ -72,5 +78,8 @@ func (h *BookingHandler) Create(c *gin.Context) {
 		logger.Int64("event_id", req.EventID),
 		logger.Int("seat_count", len(req.SeatIDs)),
 	)
-	c.JSON(http.StatusCreated, gin.H{"message": "Booking successful, check your email"})
+	c.JSON(http.StatusCreated, gin.H{
+		"message": "Booking created. Please complete payment within 15 minutes.",
+		"data":    result,
+	})
 }

@@ -16,24 +16,27 @@ import (
 
 func TestEventUsecase_CreateEvent(t *testing.T) {
 	tests := []struct {
-		name    string
-		input   *entity.Event
-		mock    func(mockRepo *mocks.MockEventRepo)
-		wantErr bool
+		name        string
+		input       *entity.Event
+		ticketPrice float64
+		mock        func(mockRepo *mocks.MockEventRepo)
+		wantErr     bool
 	}{
 		{
-			name:  "Success Create Event",
-			input: &entity.Event{Name: "Konser Coldplay", Capacity: 1000},
+			name:        "Success Create Event",
+			input:       &entity.Event{Name: "Konser Coldplay", Capacity: 1000},
+			ticketPrice: 150000,
 			mock: func(mockRepo *mocks.MockEventRepo) {
-				mockRepo.On("CreateEvent", mock.Anything, mock.AnythingOfType("*entity.Event")).Return(nil).Once()
+				mockRepo.On("CreateEvent", mock.Anything, mock.AnythingOfType("*entity.Event"), float64(150000)).Return(nil).Once()
 			},
 			wantErr: false,
 		},
 		{
-			name:  "Failed Create Event - DB Error",
-			input: &entity.Event{Name: "Konser B", Capacity: 100},
+			name:        "Failed Create Event - DB Error",
+			input:       &entity.Event{Name: "Konser B", Capacity: 100},
+			ticketPrice: 50000,
 			mock: func(mockRepo *mocks.MockEventRepo) {
-				mockRepo.On("CreateEvent", mock.Anything, mock.Anything).Return(errors.New("db error")).Once()
+				mockRepo.On("CreateEvent", mock.Anything, mock.Anything, mock.Anything).Return(errors.New("db error")).Once()
 			},
 			wantErr: true,
 		},
@@ -47,7 +50,7 @@ func TestEventUsecase_CreateEvent(t *testing.T) {
 			tt.mock(mockRepo)
 
 			u := usecase.NewEventUsecase(mockRepo, time.Second*2, mockNotif)
-			err := u.CreateEvent(context.Background(), tt.input)
+			err := u.CreateEvent(context.Background(), tt.input, tt.ticketPrice)
 
 			if tt.wantErr {
 				assert.Error(t, err)

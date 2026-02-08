@@ -10,7 +10,7 @@ import (
 )
 
 type EventUsecase interface {
-	CreateEvent(ctx context.Context, event *entity.Event) error
+	CreateEvent(ctx context.Context, event *entity.Event, ticketPrice float64) error
 	ListEvents(ctx context.Context) ([]entity.Event, error)
 	ListEventsWithSearch(ctx context.Context, search string, page, limit int) ([]entity.Event, int, error)
 	GetEventByID(ctx context.Context, eventID int64) (*entity.Event, error)
@@ -29,13 +29,13 @@ func NewEventUsecase(repo repository.EventRepository, timeout time.Duration, wor
 	return &eventUsecase{eventRepo: repo, contextTimeout: timeout, worker: worker}
 }
 
-func (uc *eventUsecase) CreateEvent(ctx context.Context, event *entity.Event) error {
+func (uc *eventUsecase) CreateEvent(ctx context.Context, event *entity.Event, ticketPrice float64) error {
 	logger.Debug("usecase: creating event", logger.String("name", event.Name))
 
 	ctx, cancel := context.WithTimeout(ctx, uc.contextTimeout)
 	defer cancel()
 
-	err := uc.eventRepo.CreateEvent(ctx, event)
+	err := uc.eventRepo.CreateEvent(ctx, event, ticketPrice)
 	if err != nil {
 		logger.Error("usecase: failed to create event", logger.Err(err))
 		return err

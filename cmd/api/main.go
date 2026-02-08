@@ -63,20 +63,24 @@ func main() {
 	userRepo := repository.NewUserRepository(dbPool)
 	eventRepo := repository.NewEventRepository(dbPool, redisClient)
 	bookingRepo := repository.NewBookingRepository(dbPool)
+	transactionRepo := repository.NewTransactionRepository(dbPool)
+	refundRepo := repository.NewRefundRepository(dbPool)
 
 	timeoutContext := time.Duration(5) * time.Second
-	notifWorker := worker.NewNotificationWorker(userRepo, bookingRepo)
+	notifWorker := worker.NewNotificationWorker(userRepo, bookingRepo, transactionRepo, refundRepo)
 	notifWorker.Start()
 
 	userUsecase := usecase.NewUserUsecase(userRepo, timeoutContext, cfg.JWT.Secret, cfg.JWT.ExpTime)
 	eventUseCase := usecase.NewEventUsecase(eventRepo, timeoutContext, notifWorker)
-	bookingUseCase := usecase.NewBookingUsecase(bookingRepo, timeoutContext, notifWorker)
+	bookingUseCase := usecase.NewBookingUsecase(bookingRepo, transactionRepo, timeoutContext, notifWorker)
+	paymentUseCase := usecase.NewPaymentUsecase(bookingRepo, transactionRepo, timeoutContext)
 
 	// Handlers
 	userHandler := delivery.NewUserHandler(userUsecase, bookingUseCase)
 	eventHandler := delivery.NewEventHandler(eventUseCase)
 	bookingHandler := delivery.NewBookingHandler(bookingUseCase)
 	adminHandler := delivery.NewAdminHandler(bookingUseCase)
+	paymentHandler := delivery.NewPaymentHandler(paymentUseCase)
 
 	// 4. Setup Router (Gin)
 	r := gin.Default()
@@ -109,6 +113,8 @@ func main() {
 			protected.GET("/me/bookings", userHandler.GetMyBookings)
 			protected.POST("/events", eventHandler.Create)
 			protected.POST("/bookings", bookingHandler.Create)
+			protected.POST("/payments", paymentHandler.ProcessPayment)
+			protected.GET("/payments/:booking_id", paymentHandler.GetPaymentStatus)
 		}
 
 		// Admin routes

@@ -10,7 +10,7 @@ import (
 )
 
 type BookingUsecase interface {
-	BookSeats(ctx context.Context, userID, eventID int64, seatIDs []int64, userEmail string) error
+	BookSeats(ctx context.Context, userID, eventID int64, seatIDs []int64, userEmail string) (*entity.BookingWithPayment, error)
 	GetBookingsByUserID(ctx context.Context, userID int64) ([]entity.BookingWithDetails, error)
 	GetAllBookings(ctx context.Context, status, sortBy, sortOrder string, page, limit int) ([]entity.BookingWithDetails, int, error)
 	GetBookingsByEventID(ctx context.Context, eventID int64, status, sortBy, sortOrder string) ([]entity.BookingWithDetails, error)
@@ -22,18 +22,22 @@ type NotificationService interface {
 }
 
 type bookingUsecase struct {
-	bookingRepo    repository.BookingRepository
-	contextTimeout time.Duration
-	// notifWorker    *worker.NotificationWorker
-	notifWorker    NotificationService
-
+	bookingRepo     repository.BookingRepository
+	transactionRepo repository.TransactionRepository
+	contextTimeout  time.Duration
+	notifWorker     NotificationService
 }
 
-func NewBookingUsecase(repo repository.BookingRepository, timeout time.Duration, notifWorker NotificationService) BookingUsecase {
-	return &bookingUsecase{bookingRepo: repo, contextTimeout: timeout, notifWorker: notifWorker}
+func NewBookingUsecase(repo repository.BookingRepository, txnRepo repository.TransactionRepository, timeout time.Duration, notifWorker NotificationService) BookingUsecase {
+	return &bookingUsecase{
+		bookingRepo:     repo,
+		transactionRepo: txnRepo,
+		contextTimeout:  timeout,
+		notifWorker:     notifWorker,
+	}
 }
 
-func (uc *bookingUsecase) BookSeats(ctx context.Context, userID, eventID int64, seatIDs []int64, useremail string) error {
+func (uc *bookingUsecase) BookSeats(ctx context.Context, userID, eventID int64, seatIDs []int64, userEmail string) (*entity.BookingWithPayment, error) {
 	logger.Debug("usecase: booking seats",
 		logger.Int64("user_id", userID),
 		logger.Int64("event_id", eventID),
@@ -43,24 +47,49 @@ func (uc *bookingUsecase) BookSeats(ctx context.Context, userID, eventID int64, 
 	ctx, cancel := context.WithTimeout(ctx, uc.contextTimeout)
 	defer cancel()
 
-	bookingID, err := uc.bookingRepo.CreateBooking(ctx, userID, eventID, seatIDs)
+	bookingID, totalAmount, err := uc.bookingRepo.CreateBooking(ctx, userID, eventID, seatIDs)
 	if err != nil {
 		logger.Error("usecase: failed to book seats",
 			logger.Int64("user_id", userID),
 			logger.Int64("event_id", eventID),
 			logger.Err(err),
 		)
-		return err
+		return nil, err
 	}
 
-	uc.notifWorker.SendNotification(bookingID, useremail, "Booking Berhasil!")
+	// Create a PENDING transaction
+	txn := &entity.Transaction{
+		Amount:    totalAmount,
+		BookingID: bookingID,
+		Status:    "PENDING",
+	}
+	if err := uc.transactionRepo.CreateTransaction(ctx, txn); err != nil {
+		logger.Error("usecase: failed to create pending transaction",
+			logger.Int64("booking_id", bookingID),
+			logger.Err(err),
+		)
+		// Booking was created successfully, so we don't fail the whole operation
+		// The transaction can be created later during payment
+	}
+
+	expiresAt := time.Now().Add(15 * time.Minute)
+	uc.notifWorker.SendNotification(bookingID, userEmail, "Booking berhasil! Silakan selesaikan pembayaran dalam 15 menit.")
 
 	logger.Info("usecase: seats booked successfully",
 		logger.Int64("booking_id", bookingID),
 		logger.Int64("user_id", userID),
 		logger.Int64("event_id", eventID),
+		logger.Float64("total_amount", totalAmount),
 	)
-	return nil
+
+	return &entity.BookingWithPayment{
+		BookingID:   bookingID,
+		EventID:     eventID,
+		Status:      "PENDING",
+		TotalAmount: totalAmount,
+		ExpiresAt:   &expiresAt,
+		Transaction: txn,
+	}, nil
 }
 
 func (uc *bookingUsecase) GetBookingsByUserID(ctx context.Context, userID int64) ([]entity.BookingWithDetails, error) {

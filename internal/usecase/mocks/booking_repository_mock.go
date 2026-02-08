@@ -11,9 +11,17 @@ type MockBookingRepo struct {
 	mock.Mock
 }
 
-func (m *MockBookingRepo) CreateBooking(ctx context.Context, userID, eventID int64, seatIDs []int64) (int64, error) {
+func (m *MockBookingRepo) CreateBooking(ctx context.Context, userID, eventID int64, seatIDs []int64) (int64, float64, error) {
 	args := m.Called(ctx, userID, eventID, seatIDs)
-	return args.Get(0).(int64), args.Error(1)
+	return args.Get(0).(int64), args.Get(1).(float64), args.Error(2)
+}
+
+func (m *MockBookingRepo) GetBookingByID(ctx context.Context, bookingID int64) (*entity.Booking, error) {
+	args := m.Called(ctx, bookingID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*entity.Booking), args.Error(1)
 }
 
 func (m *MockBookingRepo) GetBookingsByEventID(ctx context.Context, eventID int64) ([]entity.Booking, error) {
@@ -50,5 +58,10 @@ func (m *MockBookingRepo) GetBookingsWithDetailsByEventID(ctx context.Context, e
 
 func (m *MockBookingRepo) UpdateBookingStatus(ctx context.Context, bookingID int64, status string) error {
 	args := m.Called(ctx, bookingID, status)
+	return args.Error(0)
+}
+
+func (m *MockBookingRepo) ReleaseSeatsByBookingID(ctx context.Context, bookingID int64) error {
+	args := m.Called(ctx, bookingID)
 	return args.Error(0)
 }

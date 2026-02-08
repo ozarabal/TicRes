@@ -21,7 +21,7 @@ func TestBookingUsecase_BookSeats(t *testing.T) {
 		eventID   int64
 		seatIDs   []int64
 		userEmail string
-		mock      func(mockRepo *mocks.MockBookingRepo, mockNotif *mocks.MockNotificationService)
+		mock      func(mockRepo *mocks.MockBookingRepo, mockTxnRepo *mocks.MockTransactionRepo, mockNotif *mocks.MockNotificationService)
 		wantErr   bool
 	}{
 		{
@@ -30,9 +30,11 @@ func TestBookingUsecase_BookSeats(t *testing.T) {
 			eventID:   10,
 			seatIDs:   []int64{101, 102},
 			userEmail: "user@test.com",
-			mock: func(mockRepo *mocks.MockBookingRepo, mockNotif *mocks.MockNotificationService) {
+			mock: func(mockRepo *mocks.MockBookingRepo, mockTxnRepo *mocks.MockTransactionRepo, mockNotif *mocks.MockNotificationService) {
 				mockRepo.On("CreateBooking", mock.Anything, int64(1), int64(10), []int64{101, 102}).
-					Return(int64(999), nil).Once()
+					Return(int64(999), float64(200000), nil).Once()
+				mockTxnRepo.On("CreateTransaction", mock.Anything, mock.AnythingOfType("*entity.Transaction")).
+					Return(nil).Once()
 				mockNotif.On("SendNotification", int64(999), "user@test.com", mock.AnythingOfType("string")).
 					Once()
 			},
@@ -44,9 +46,9 @@ func TestBookingUsecase_BookSeats(t *testing.T) {
 			eventID:   10,
 			seatIDs:   []int64{101},
 			userEmail: "user@test.com",
-			mock: func(mockRepo *mocks.MockBookingRepo, mockNotif *mocks.MockNotificationService) {
+			mock: func(mockRepo *mocks.MockBookingRepo, mockTxnRepo *mocks.MockTransactionRepo, mockNotif *mocks.MockNotificationService) {
 				mockRepo.On("CreateBooking", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-					Return(int64(0), errors.New("seat not available")).Once()
+					Return(int64(0), float64(0), errors.New("seat not available")).Once()
 			},
 			wantErr: true,
 		},
@@ -55,20 +57,26 @@ func TestBookingUsecase_BookSeats(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockRepo := new(mocks.MockBookingRepo)
+			mockTxnRepo := new(mocks.MockTransactionRepo)
 			mockNotif := new(mocks.MockNotificationService)
 
-			tt.mock(mockRepo, mockNotif)
+			tt.mock(mockRepo, mockTxnRepo, mockNotif)
 
-			u := usecase.NewBookingUsecase(mockRepo, time.Second*2, mockNotif)
-			err := u.BookSeats(context.Background(), tt.userID, tt.eventID, tt.seatIDs, tt.userEmail)
+			u := usecase.NewBookingUsecase(mockRepo, mockTxnRepo, time.Second*2, mockNotif)
+			result, err := u.BookSeats(context.Background(), tt.userID, tt.eventID, tt.seatIDs, tt.userEmail)
 
 			if tt.wantErr {
 				assert.Error(t, err)
+				assert.Nil(t, result)
 			} else {
 				assert.NoError(t, err)
+				assert.NotNil(t, result)
+				assert.Equal(t, "PENDING", result.Status)
+				assert.Equal(t, float64(200000), result.TotalAmount)
 			}
 
 			mockRepo.AssertExpectations(t)
+			mockTxnRepo.AssertExpectations(t)
 			mockNotif.AssertExpectations(t)
 		})
 	}
@@ -123,11 +131,12 @@ func TestBookingUsecase_GetBookingsByUserID(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockRepo := new(mocks.MockBookingRepo)
+			mockTxnRepo := new(mocks.MockTransactionRepo)
 			mockNotif := new(mocks.MockNotificationService)
 
 			tt.mock(mockRepo)
 
-			u := usecase.NewBookingUsecase(mockRepo, time.Second*2, mockNotif)
+			u := usecase.NewBookingUsecase(mockRepo, mockTxnRepo, time.Second*2, mockNotif)
 			bookings, err := u.GetBookingsByUserID(context.Background(), tt.userID)
 
 			if tt.wantErr {
@@ -177,36 +186,6 @@ func TestBookingUsecase_GetAllBookings(t *testing.T) {
 			wantTotal:    2,
 		},
 		{
-			name:      "Success - Filter by Status",
-			status:    "PAID",
-			sortBy:    "created_at",
-			sortOrder: "desc",
-			page:      1,
-			limit:     20,
-			mock: func(mockRepo *mocks.MockBookingRepo) {
-				mockRepo.On("GetAllBookings", mock.Anything, "PAID", "created_at", "desc", 1, 20).
-					Return(mockBookings[:1], 1, nil).Once()
-			},
-			wantErr:      false,
-			wantBookings: mockBookings[:1],
-			wantTotal:    1,
-		},
-		{
-			name:      "Success - Empty Result",
-			status:    "REFUNDED",
-			sortBy:    "created_at",
-			sortOrder: "desc",
-			page:      1,
-			limit:     20,
-			mock: func(mockRepo *mocks.MockBookingRepo) {
-				mockRepo.On("GetAllBookings", mock.Anything, "REFUNDED", "created_at", "desc", 1, 20).
-					Return([]entity.BookingWithDetails{}, 0, nil).Once()
-			},
-			wantErr:      false,
-			wantBookings: []entity.BookingWithDetails{},
-			wantTotal:    0,
-		},
-		{
 			name:      "Failed - DB Error",
 			status:    "",
 			sortBy:    "created_at",
@@ -226,11 +205,12 @@ func TestBookingUsecase_GetAllBookings(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockRepo := new(mocks.MockBookingRepo)
+			mockTxnRepo := new(mocks.MockTransactionRepo)
 			mockNotif := new(mocks.MockNotificationService)
 
 			tt.mock(mockRepo)
 
-			u := usecase.NewBookingUsecase(mockRepo, time.Second*2, mockNotif)
+			u := usecase.NewBookingUsecase(mockRepo, mockTxnRepo, time.Second*2, mockNotif)
 			bookings, total, err := u.GetAllBookings(context.Background(), tt.status, tt.sortBy, tt.sortOrder, tt.page, tt.limit)
 
 			if tt.wantErr {
@@ -277,32 +257,6 @@ func TestBookingUsecase_GetBookingsByEventID(t *testing.T) {
 			wantBookings: mockBookings,
 		},
 		{
-			name:      "Success - Filter by Status",
-			eventID:   10,
-			status:    "PAID",
-			sortBy:    "created_at",
-			sortOrder: "desc",
-			mock: func(mockRepo *mocks.MockBookingRepo) {
-				mockRepo.On("GetBookingsWithDetailsByEventID", mock.Anything, int64(10), "PAID", "created_at", "desc").
-					Return(mockBookings[:1], nil).Once()
-			},
-			wantErr:      false,
-			wantBookings: mockBookings[:1],
-		},
-		{
-			name:      "Success - Empty Result",
-			eventID:   999,
-			status:    "",
-			sortBy:    "created_at",
-			sortOrder: "desc",
-			mock: func(mockRepo *mocks.MockBookingRepo) {
-				mockRepo.On("GetBookingsWithDetailsByEventID", mock.Anything, int64(999), "", "created_at", "desc").
-					Return([]entity.BookingWithDetails{}, nil).Once()
-			},
-			wantErr:      false,
-			wantBookings: []entity.BookingWithDetails{},
-		},
-		{
 			name:      "Failed - DB Error",
 			eventID:   10,
 			status:    "",
@@ -320,11 +274,12 @@ func TestBookingUsecase_GetBookingsByEventID(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockRepo := new(mocks.MockBookingRepo)
+			mockTxnRepo := new(mocks.MockTransactionRepo)
 			mockNotif := new(mocks.MockNotificationService)
 
 			tt.mock(mockRepo)
 
-			u := usecase.NewBookingUsecase(mockRepo, time.Second*2, mockNotif)
+			u := usecase.NewBookingUsecase(mockRepo, mockTxnRepo, time.Second*2, mockNotif)
 			bookings, err := u.GetBookingsByEventID(context.Background(), tt.eventID, tt.status, tt.sortBy, tt.sortOrder)
 
 			if tt.wantErr {

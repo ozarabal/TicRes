@@ -4,20 +4,24 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"ticres/internal/entity"
 	"ticres/pkg/logger"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type BookingRepository interface {
-	CreateBooking(ctx context.Context, userID, eventID int64, seatIDs []int64) (int64, error)
+	CreateBooking(ctx context.Context, userID, eventID int64, seatIDs []int64) (int64, float64, error)
+	GetBookingByID(ctx context.Context, bookingID int64) (*entity.Booking, error)
 	GetBookingsByEventID(ctx context.Context, eventID int64) ([]entity.Booking, error)
 	GetBookingsByUserID(ctx context.Context, userID int64) ([]entity.BookingWithDetails, error)
 	GetAllBookings(ctx context.Context, status, sortBy, sortOrder string, page, limit int) ([]entity.BookingWithDetails, int, error)
 	GetBookingsWithDetailsByEventID(ctx context.Context, eventID int64, status, sortBy, sortOrder string) ([]entity.BookingWithDetails, error)
 	UpdateBookingStatus(ctx context.Context, bookingID int64, status string) error
+	ReleaseSeatsByBookingID(ctx context.Context, bookingID int64) error
 }
 
 type bookingRepository struct {
@@ -28,7 +32,7 @@ func NewBookingRepository(db *pgxpool.Pool) BookingRepository {
 	return &bookingRepository{db: db}
 }
 
-func (r *bookingRepository) CreateBooking(ctx context.Context, userID, eventID int64, seatIDs []int64) (int64, error) {
+func (r *bookingRepository) CreateBooking(ctx context.Context, userID, eventID int64, seatIDs []int64) (int64, float64, error) {
 	logger.Debug("creating booking",
 		logger.Int64("user_id", userID),
 		logger.Int64("event_id", eventID),
@@ -38,20 +42,32 @@ func (r *bookingRepository) CreateBooking(ctx context.Context, userID, eventID i
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		logger.Error("failed to begin transaction", logger.Err(err))
-		return 0, err
+		return 0, 0, err
 	}
 	defer tx.Rollback(ctx)
 
+	// Calculate total amount from seat prices
+	var totalAmount float64
+	queryPrice := `SELECT COALESCE(SUM(price), 0) FROM seats WHERE seat_id = ANY($1)`
+	err = tx.QueryRow(ctx, queryPrice, seatIDs).Scan(&totalAmount)
+	if err != nil {
+		logger.Error("failed to calculate total amount", logger.Err(err))
+		return 0, 0, err
+	}
+
+	// Set expiry to 15 minutes from now
+	expiresAt := time.Now().Add(15 * time.Minute)
+
 	var bookingID int64
 	queryBooking := `
-		INSERT INTO booking (user_id, event_id, status, created_at)
-		VALUES ($1, $2, 'PENDING', NOW())
+		INSERT INTO booking (user_id, event_id, status, total_amount, expires_at, created_at)
+		VALUES ($1, $2, 'PENDING', $3, $4, NOW())
 		RETURNING booking_id
 	`
-	err = tx.QueryRow(ctx, queryBooking, userID, eventID).Scan(&bookingID)
+	err = tx.QueryRow(ctx, queryBooking, userID, eventID, totalAmount, expiresAt).Scan(&bookingID)
 	if err != nil {
 		logger.Error("failed to insert booking", logger.Err(err))
-		return 0, err
+		return 0, 0, err
 	}
 
 	queryLockSeat := `UPDATE seats SET is_booked = True WHERE seat_id = $1 AND is_booked = False`
@@ -64,25 +80,25 @@ func (r *bookingRepository) CreateBooking(ctx context.Context, userID, eventID i
 				logger.Int64("seat_id", seatID),
 				logger.Err(err),
 			)
-			return 0, err
+			return 0, 0, err
 		}
 		if cmdTag.RowsAffected() == 0 {
 			logger.Warn("seat not available",
 				logger.Int64("seat_id", seatID),
 				logger.Int64("booking_id", bookingID),
 			)
-			return 0, errors.New("seat not available or already booked")
+			return 0, 0, errors.New("seat not available or already booked")
 		}
 		_, err = tx.Exec(ctx, queryInsertItem, bookingID, seatID)
 		if err != nil {
 			logger.Error("failed to insert booking item", logger.Err(err))
-			return 0, err
+			return 0, 0, err
 		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		logger.Error("failed to commit booking transaction", logger.Err(err))
-		return 0, err
+		return 0, 0, err
 	}
 
 	logger.Info("booking created successfully",
@@ -90,8 +106,33 @@ func (r *bookingRepository) CreateBooking(ctx context.Context, userID, eventID i
 		logger.Int64("user_id", userID),
 		logger.Int64("event_id", eventID),
 		logger.Int("seat_count", len(seatIDs)),
+		logger.Float64("total_amount", totalAmount),
 	)
-	return bookingID, nil
+	return bookingID, totalAmount, nil
+}
+
+func (r *bookingRepository) GetBookingByID(ctx context.Context, bookingID int64) (*entity.Booking, error) {
+	logger.Debug("fetching booking by ID", logger.Int64("booking_id", bookingID))
+
+	query := `
+		SELECT booking_id, user_id, event_id, status, COALESCE(total_amount, 0), expires_at, created_at
+		FROM booking
+		WHERE booking_id = $1
+	`
+
+	var b entity.Booking
+	err := r.db.QueryRow(ctx, query, bookingID).Scan(
+		&b.ID, &b.UserID, &b.EventID, &b.Status, &b.TotalAmount, &b.ExpiresAt, &b.CreatedAt,
+	)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, entity.ErrNotFound
+		}
+		logger.Error("failed to fetch booking", logger.Int64("booking_id", bookingID), logger.Err(err))
+		return nil, err
+	}
+
+	return &b, nil
 }
 
 func (r *bookingRepository) GetBookingsByEventID(ctx context.Context, eventID int64) ([]entity.Booking, error) {
@@ -324,5 +365,27 @@ func (r *bookingRepository) UpdateBookingStatus(ctx context.Context, bookingID i
 		logger.Int64("booking_id", bookingID),
 		logger.String("status", status),
 	)
+	return nil
+}
+
+func (r *bookingRepository) ReleaseSeatsByBookingID(ctx context.Context, bookingID int64) error {
+	logger.Debug("releasing seats for booking", logger.Int64("booking_id", bookingID))
+
+	query := `
+		UPDATE seats SET is_booked = False
+		WHERE seat_id IN (
+			SELECT seat_id FROM booking_items WHERE booking_id = $1
+		)
+	`
+	_, err := r.db.Exec(ctx, query, bookingID)
+	if err != nil {
+		logger.Error("failed to release seats",
+			logger.Int64("booking_id", bookingID),
+			logger.Err(err),
+		)
+		return err
+	}
+
+	logger.Info("seats released for booking", logger.Int64("booking_id", bookingID))
 	return nil
 }
