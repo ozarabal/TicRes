@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"ticres/internal/entity"
 	"ticres/internal/repository"
 	"ticres/pkg/logger"
 )
@@ -25,17 +26,26 @@ type NotificationPayload struct {
 }
 
 type NotificationWorker struct {
-	JobQueue    chan NotificationPayload
-	wg          sync.WaitGroup
-	userRepo    repository.UserRepository
-	bookingRepo repository.BookingRepository
+	JobQueue        chan NotificationPayload
+	wg              sync.WaitGroup
+	userRepo        repository.UserRepository
+	bookingRepo     repository.BookingRepository
+	transactionRepo repository.TransactionRepository
+	refundRepo      repository.RefundRepository
 }
 
-func NewNotificationWorker(uRepo repository.UserRepository, bRepo repository.BookingRepository) *NotificationWorker {
+func NewNotificationWorker(
+	uRepo repository.UserRepository,
+	bRepo repository.BookingRepository,
+	txnRepo repository.TransactionRepository,
+	refundRepo repository.RefundRepository,
+) *NotificationWorker {
 	return &NotificationWorker{
-		JobQueue:    make(chan NotificationPayload, 100),
-		userRepo:    uRepo,
-		bookingRepo: bRepo,
+		JobQueue:        make(chan NotificationPayload, 100),
+		userRepo:        uRepo,
+		bookingRepo:     bRepo,
+		transactionRepo: txnRepo,
+		refundRepo:      refundRepo,
 	}
 }
 
@@ -110,12 +120,53 @@ func (w *NotificationWorker) processEventRefund(eventID int64) {
 			)
 			time.Sleep(500 * time.Millisecond) // Simulate bank delay
 
+			// Get the transaction and update its status to REFUNDED
+			txn, err := w.transactionRepo.GetTransactionByBookingID(ctx, b.ID)
+			if err != nil {
+				logger.Error("worker: failed to get transaction for refund",
+					logger.Int64("booking_id", b.ID),
+					logger.Err(err),
+				)
+			}
+
+			if txn != nil {
+				if err := w.transactionRepo.UpdateTransactionStatus(ctx, txn.ID, "REFUNDED", ""); err != nil {
+					logger.Error("worker: failed to update transaction to REFUNDED",
+						logger.Int64("payment_id", txn.ID),
+						logger.Err(err),
+					)
+				}
+
+				// Create refund record
+				refund := &entity.Refund{
+					BookingID: b.ID,
+					Amount:    txn.Amount,
+					Reason:    "Event cancelled by administrator",
+					Status:    "COMPLETED",
+				}
+				if err := w.refundRepo.CreateRefund(ctx, refund); err != nil {
+					logger.Error("worker: failed to create refund record",
+						logger.Int64("booking_id", b.ID),
+						logger.Err(err),
+					)
+				}
+			}
+
+			// Update booking status to REFUNDED
 			if err := w.bookingRepo.UpdateBookingStatus(ctx, b.ID, "REFUNDED"); err != nil {
 				logger.Error("worker: failed to update booking status to REFUNDED",
 					logger.Int64("booking_id", b.ID),
 					logger.Err(err),
 				)
 				continue
+			}
+
+			// Release seats back
+			if err := w.bookingRepo.ReleaseSeatsByBookingID(ctx, b.ID); err != nil {
+				logger.Error("worker: failed to release seats",
+					logger.Int64("booking_id", b.ID),
+					logger.Err(err),
+				)
 			}
 
 			w.sendEmailLog(user.Email, b.ID, "Event dibatalkan. Uang Anda telah kami refund sepenuhnya.")
@@ -125,12 +176,26 @@ func (w *NotificationWorker) processEventRefund(eventID int64) {
 			)
 
 		} else if b.Status == "PENDING" {
+			// Cancel pending transaction if exists
+			txn, _ := w.transactionRepo.GetTransactionByBookingID(ctx, b.ID)
+			if txn != nil {
+				w.transactionRepo.UpdateTransactionStatus(ctx, txn.ID, "CANCELLED", "")
+			}
+
 			if err := w.bookingRepo.UpdateBookingStatus(ctx, b.ID, "CANCELLED"); err != nil {
 				logger.Error("worker: failed to update booking status to CANCELLED",
 					logger.Int64("booking_id", b.ID),
 					logger.Err(err),
 				)
 				continue
+			}
+
+			// Release seats back
+			if err := w.bookingRepo.ReleaseSeatsByBookingID(ctx, b.ID); err != nil {
+				logger.Error("worker: failed to release seats",
+					logger.Int64("booking_id", b.ID),
+					logger.Err(err),
+				)
 			}
 
 			w.sendEmailLog(user.Email, b.ID, "Booking dibatalkan karena event ditiadakan.")
