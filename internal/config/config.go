@@ -36,10 +36,10 @@ type DatabaseConfig struct {
 // LoadConfig membaca file .env dan memasukkannya ke struct Config
 func LoadConfig() (*Config, error) {
 	viper.SetConfigFile(".env")
-	
-	if err := viper.ReadInConfig(); err != nil {
-		return nil, err
-	}
+	viper.AutomaticEnv()
+
+	// .env file is optional when environment variables are set directly
+	_ = viper.ReadInConfig()
 
 	var cfg Config
 	

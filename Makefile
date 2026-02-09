@@ -12,6 +12,16 @@ DB_URL="postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?ss
 # Folder tempat file .sql disimpan
 MIGRATE_PATH=db/migrations
 
+# --- Quick Start (Docker Compose) ---
+quick-start:
+	docker compose up --build -d
+
+quick-stop:
+	docker compose down
+
+quick-clean:
+	docker compose down -v
+
 # --- Docker Commands (Optional tapi Recommended) ---
 # Menjalankan container Postgres
 docker-up:
