@@ -151,7 +151,7 @@ db/migrations/             → 9 versioned SQL migration files
 ### Quick Start
 
 ```bash
-git clone https://github.com/<your-username>/ticres.git
+git clone https://github.com/ozarabal/TicRes.git
 cd ticres
 make quick-start
 ```
