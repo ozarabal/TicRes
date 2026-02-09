@@ -14,7 +14,6 @@ A production-ready backend service for event ticket reservations built with **Go
 - [Database Design](#database-design)
 - [API Endpoints](#api-endpoints)
 - [Getting Started](#getting-started)
-- [API Documentation Screenshots](#api-documentation-screenshots)
 
 ---
 
