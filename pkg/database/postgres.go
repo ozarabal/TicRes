@@ -7,10 +7,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func NewPostgresConnection(host, port, user, password, dbname string) (*pgxpool.Pool, error) {
+func NewPostgresConnection(host, port, user, password, dbname, sslmode string) (*pgxpool.Pool, error) {
 	// 1. Format Connection String (DSN)
-	dsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable",
-		user, password, host, port, dbname,
+	dsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s",
+		user, password, host, port, dbname, sslmode,
 	)
 
 	// 2. Parse Config

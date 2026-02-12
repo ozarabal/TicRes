@@ -22,6 +22,7 @@ type RedisConfig struct{
 	Host  	string
 	Port	string
 	Password string
+	UseTLS	bool
 }
 
 
@@ -31,6 +32,7 @@ type DatabaseConfig struct {
 	User     string
 	Password string
 	Name     string
+	SSLMode  string
 }
 
 // LoadConfig membaca file .env dan memasukkannya ke struct Config
@@ -55,6 +57,12 @@ func LoadConfig() (*Config, error) {
 	cfg.Cache.Host = viper.GetString("CACHE_HOST")
 	cfg.Cache.Password = viper.GetString("CACHE_PASSWORD")
 	cfg.Cache.Port = viper.GetString("CACHE_PORT")
+	cfg.Cache.UseTLS = viper.GetBool("CACHE_TLS")
+
+	cfg.DB.SSLMode = viper.GetString("SSL_MODE")
+	if cfg.DB.SSLMode == "" {
+		cfg.DB.SSLMode = "disable"
+	}
 
 	return &cfg, nil
 }

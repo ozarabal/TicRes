@@ -1,8 +1,8 @@
 # TicRes — Event Ticket Reservation System
 
-A production-ready backend service for event ticket reservations built with **Go**, featuring real-time seat locking, payment processing, background job workers, and role-based access control.
+A full-stack event ticket reservation platform where users can browse events, select seats, and book tickets with real-time availability. Admins manage events with automatic refund processing on cancellation. Built with a **Go** backend and **React** frontend, deployed on **Microsoft Azure**.
 
-> Built with Clean Architecture, designed for concurrency safety and horizontal scalability.
+> Clean Architecture backend with concurrency-safe booking, background workers, and Redis caching — paired with a modern React + TypeScript frontend.
 
 ---
 
@@ -14,6 +14,7 @@ A production-ready backend service for event ticket reservations built with **Go
 - [Database Design](#database-design)
 - [API Endpoints](#api-endpoints)
 - [Getting Started](#getting-started)
+- [Azure Deployment](#azure-deployment)
 
 ---
 
@@ -53,7 +54,7 @@ Each layer communicates through **interfaces**, making every component independe
 ```
 cmd/
   api/main.go              → Entry point, DI wiring, graceful shutdown
-  seed/main.go             → Database seeder (admin account + sample events)
+  seed/main.go             → Database seeder (admin account + 20 sample events)
 
 internal/
   config/                  → Environment config (Viper, 12-factor app)
@@ -70,12 +71,15 @@ pkg/
   logger/                  → Structured logging (Zap)
   response/                → HTTP response helpers
 
+client/                    → React frontend (Vite + TypeScript + Tailwind CSS)
 db/migrations/             → 9 versioned SQL migration files
 ```
 
 ---
 
 ## Tech Stack
+
+### Backend
 
 | Layer | Technology |
 |---|---|
@@ -91,13 +95,24 @@ db/migrations/             → 9 versioned SQL migration files
 | API Docs | Swagger / OpenAPI (swaggo) |
 | Containerization | Docker, Docker Compose |
 
+### Frontend
+
+| Layer | Technology |
+|---|---|
+| Framework | React 19 |
+| Language | TypeScript |
+| Build Tool | Vite |
+| Styling | Tailwind CSS |
+| HTTP Client | Axios |
+| Routing | React Router v7 |
+
 ---
 
 ## Database Design
 
 ![Database Diagram](docs/screenshots/ticresERD.png)
 
-**6 tables** with foreign keys, ENUM types, and proper constraints:
+**7 tables** with foreign keys, ENUM types, and proper constraints:
 
 | Table | Purpose | Key Details |
 |---|---|---|
@@ -162,7 +177,7 @@ The API will be available at `http://localhost:8080`.
 
 ### Seed Sample Data
 
-To populate the database with an admin account and sample events:
+To populate the database with an admin account and 20 sample events:
 
 ```bash
 # With local Go installed:
@@ -187,9 +202,158 @@ make migrate-up
 make run
 ```
 
+### Frontend Development
+
+```bash
+cd client
+npm install
+npm run dev     # Starts on http://localhost:3000
+```
+
 ### Stop & Cleanup
 
 ```bash
 make quick-stop     # Stop containers
 make quick-clean    # Stop + remove volumes
 ```
+
+---
+
+## Azure Deployment
+
+This project is deployed on **Microsoft Azure** (Student account, Southeast Asia region).
+
+### Azure Architecture
+
+| Component | Azure Service | Tier |
+|-----------|--------------|------|
+| Frontend | Azure Static Web Apps | Free |
+| Backend API | Azure App Service (Linux) | B1 |
+| Database | Azure Database for PostgreSQL Flexible Server | Burstable B1ms |
+| Cache | Azure Cache for Redis | Basic C0 |
+| Container Registry | Azure Container Registry | Basic |
+
+### Prerequisites
+
+- [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli) installed
+- Azure for Students subscription activated
+- Docker installed locally
+
+### 1. Create Azure Resources
+
+```bash
+# Login to Azure
+az login
+
+# Create Resource Group (Southeast Asia)
+az group create --name rg-ticres --location southeastasia
+
+# PostgreSQL Flexible Server
+az postgres flexible-server create \
+  --resource-group rg-ticres --name ticres-db \
+  --location southeastasia --admin-user ticresadmin \
+  --admin-password <STRONG_PASSWORD> \
+  --sku-name Standard_B1ms --tier Burstable \
+  --storage-size 32 --version 16 --yes
+
+az postgres flexible-server firewall-rule create \
+  --resource-group rg-ticres --name ticres-db \
+  --rule-name AllowAzureServices \
+  --start-ip-address 0.0.0.0 --end-ip-address 0.0.0.0
+
+az postgres flexible-server db create \
+  --resource-group rg-ticres --server-name ticres-db \
+  --database-name ticket_db
+
+# Azure Cache for Redis
+az redis create --resource-group rg-ticres --name ticres-cache \
+  --location southeastasia --sku Basic --vm-size c0
+
+# Container Registry
+az acr create --resource-group rg-ticres --name ticresregistry \
+  --sku Basic --location southeastasia --admin-enabled true
+
+# App Service Plan + Web App
+az appservice plan create --resource-group rg-ticres \
+  --name ticres-plan --location southeastasia --is-linux --sku B1
+
+az webapp create --resource-group rg-ticres --plan ticres-plan \
+  --name ticres-api \
+  --deployment-container-image-name ticresregistry.azurecr.io/ticres-api:latest
+```
+
+### 2. Configure Environment Variables
+
+```bash
+az webapp config appsettings set --resource-group rg-ticres --name ticres-api \
+  --settings \
+    PORT=8080 \
+    DB_HOST=ticres-db.postgres.database.azure.com \
+    DB_PORT=5432 \
+    DB_USER=ticresadmin \
+    DB_PASSWORD=<DB_PASSWORD> \
+    DB_NAME=ticket_db \
+    SSL_MODE=require \
+    JWT_SECRET=<STRONG_SECRET> \
+    JWT_EXP_TIME=24 \
+    CACHE_HOST=ticres-cache.redis.cache.windows.net \
+    CACHE_PORT=6380 \
+    CACHE_PASSWORD=<REDIS_ACCESS_KEY> \
+    CACHE_TLS=true \
+    APP_MODE=production \
+    RUN_SEED=true \
+    WEBSITES_PORT=8080
+```
+
+> Set `RUN_SEED=false` after the first successful deployment.
+
+### 3. Deploy Backend
+
+```bash
+# Login to ACR
+az acr login --name ticresregistry
+
+# Build and push Docker image
+docker build -t ticresregistry.azurecr.io/ticres-api:latest .
+docker push ticresregistry.azurecr.io/ticres-api:latest
+
+# Restart to pull new image
+az webapp restart --resource-group rg-ticres --name ticres-api
+```
+
+### 4. Deploy Frontend
+
+```bash
+# Create Static Web App (via Azure Portal or CLI)
+az staticwebapp create --resource-group rg-ticres \
+  --name ticres-frontend --location southeastasia
+
+# Build with production API URL
+cd client
+npm ci
+VITE_API_URL=https://ticres-api.azurewebsites.net/api/v1 npm run build
+
+# Deploy using SWA CLI
+npx @azure/static-web-apps-cli deploy ./dist \
+  --deployment-token <SWA_DEPLOYMENT_TOKEN>
+```
+
+### Environment Variables Reference
+
+| Variable | Description | Local | Azure |
+|----------|-------------|-------|-------|
+| `PORT` | API server port | 8080 | 8080 |
+| `DB_HOST` | PostgreSQL host | localhost | ticres-db.postgres.database.azure.com |
+| `DB_PORT` | PostgreSQL port | 5433 | 5432 |
+| `DB_USER` | Database user | postgres | ticresadmin |
+| `DB_PASSWORD` | Database password | secret | (strong password) |
+| `DB_NAME` | Database name | ticket_db | ticket_db |
+| `SSL_MODE` | PostgreSQL SSL mode | disable | require |
+| `JWT_SECRET` | JWT signing secret | rahasia_negara | (strong secret) |
+| `JWT_EXP_TIME` | JWT expiry (hours) | 24 | 24 |
+| `CACHE_HOST` | Redis host | localhost | ticres-cache.redis.cache.windows.net |
+| `CACHE_PORT` | Redis port | 6379 | 6380 |
+| `CACHE_PASSWORD` | Redis password | (empty) | (access key) |
+| `CACHE_TLS` | Redis TLS enabled | false | true |
+| `RUN_SEED` | Run seed on startup | - | true (first deploy only) |
+| `WEBSITES_PORT` | Azure container port | - | 8080 |

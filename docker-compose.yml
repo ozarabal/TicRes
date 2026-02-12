@@ -51,6 +51,7 @@ services:
       CACHE_HOST: redis
       CACHE_PORT: "6379"
       CACHE_PASSWORD: ""
+      CACHE_TLS: "false"
     depends_on:
       migrate:
         condition: service_completed_successfully

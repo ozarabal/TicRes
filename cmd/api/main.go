@@ -70,6 +70,7 @@ func main() {
 		cfg.DB.User,
 		cfg.DB.Password,
 		cfg.DB.Name,
+		cfg.DB.SSLMode,
 	)
 	if err != nil {
 		logger.Fatal("database connection failed", logger.Err(err))
@@ -77,7 +78,7 @@ func main() {
 	defer dbPool.Close()
 	logger.Info("database connected successfully")
 
-	redisClient, err := database.NewRedClient(cfg.Cache.Host, cfg.Cache.Port, cfg.Cache.Password)
+	redisClient, err := database.NewRedClient(cfg.Cache.Host, cfg.Cache.Port, cfg.Cache.Password, cfg.Cache.UseTLS)
 	if err != nil {
 		logger.Fatal("redis connection failed", logger.Err(err))
 	}
