@@ -26,7 +26,7 @@ RUN curl -L https://github.com/golang-migrate/migrate/releases/download/v4.17.0/
     mv migrate /usr/local/bin/migrate
 
 COPY startup.sh .
-RUN chmod +x startup.sh
+RUN sed -i 's/\r$//' startup.sh && chmod +x startup.sh
 
 EXPOSE 8080
 
